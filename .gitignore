@@ -1,0 +1,18 @@
+# --- SysLab Infra Security ---
+
+# AWS Keys & Credentials
+*.pem
+*.aws/
+credentials
+
+# Environment Variables (DB 비밀번호 등)
+.env
+.env.production
+
+# OS & IDE
+.DS_Store
+.idea/
+.vscode/
+
+# Logs
+*.log

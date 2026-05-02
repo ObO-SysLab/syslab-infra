@@ -1,0 +1,122 @@
+{
+  "_meta": {
+    "captured_at": "2026-05-01",
+    "description": "실제 캡처한 SQS 메시지 샘플 (Body 파싱 후 구조)",
+    "queue": "syslab-practice-build-queue",
+    "note": "SQS에서 받은 Message.Body를 JSON 파싱한 결과입니다. ReceiptHandle은 메시지 삭제 시 필요합니다."
+  },
+
+  "SUCCEEDED": {
+    "_comment": "빌드 성공 메시지 — image_status = READY, ecr_image_uri 저장",
+    "version": "0",
+    "id": "78d17fd2-130f-b8a0-2c3e-259e9dc0a8c2",
+    "detail-type": "CodeBuild Build State Change",
+    "source": "aws.codebuild",
+    "account": "290373175858",
+    "time": "2026-04-30T23:11:00Z",
+    "region": "ap-northeast-2",
+    "resources": [
+      "arn:aws:codebuild:ap-northeast-2:290373175858:build/syslab-practice-build:84aa3c23-dc16-48d5-a235-7fb6243f1ebe"
+    ],
+    "detail": {
+      "build-status": "SUCCEEDED",
+      "project-name": "syslab-practice-build",
+      "build-id": "arn:aws:codebuild:ap-northeast-2:290373175858:build/syslab-practice-build:84aa3c23-dc16-48d5-a235-7fb6243f1ebe",
+      "additional-information": {
+        "source": {
+          "location": "syslab-practice-dockerfile/prob-1/source.zip",
+          "type": "S3"
+        },
+        "logs": {
+          "group-name": "/aws/codebuild/syslab-practice-build",
+          "stream-name": "84aa3c23-dc16-48d5-a235-7fb6243f1ebe",
+          "deep-link": "https://console.aws.amazon.com/cloudwatch/home?region=ap-northeast-2#logsV2:log-groups/log-group/$252Faws$252Fcodebuild$252Fsyslab-practice-build/log-events/84aa3c23-dc16-48d5-a235-7fb6243f1ebe"
+        },
+        "environment": {
+          "image": "aws/codebuild/amazonlinux2-x86_64-standard:5.0",
+          "privileged-mode": true,
+          "compute-type": "BUILD_GENERAL1_SMALL",
+          "type": "LINUX_CONTAINER",
+          "environment-variables": [
+            {"name": "ECR_REPOSITORY", "type": "PLAINTEXT", "value": "syslab-practice"},
+            {"name": "AWS_REGION",     "type": "PLAINTEXT", "value": "ap-northeast-2"},
+            {"name": "ACCOUNT_ID",     "type": "PLAINTEXT", "value": "290373175858"}
+          ]
+        },
+        "build-complete": true,
+        "build-number": 12.0
+      },
+      "current-phase": "COMPLETED",
+      "version": "1"
+    }
+  },
+
+  "FAILED": {
+    "_comment": "빌드 실패 메시지 — image_status = FAILED, logs.deep-link 저장",
+    "version": "0",
+    "id": "a80a0fc5-2d09-76e8-4f21-19b2bdc473f8",
+    "detail-type": "CodeBuild Build State Change",
+    "source": "aws.codebuild",
+    "account": "290373175858",
+    "time": "2026-04-30T23:00:12Z",
+    "region": "ap-northeast-2",
+    "resources": [
+      "arn:aws:codebuild:ap-northeast-2:290373175858:build/syslab-practice-build:7d1e50b4-f1ad-4a40-84b4-d517468477f2"
+    ],
+    "detail": {
+      "build-status": "FAILED",
+      "project-name": "syslab-practice-build",
+      "build-id": "arn:aws:codebuild:ap-northeast-2:290373175858:build/syslab-practice-build:7d1e50b4-f1ad-4a40-84b4-d517468477f2",
+      "additional-information": {
+        "source": {
+          "location": "syslab-practice-dockerfile/prob-1/source.zip",
+          "type": "S3"
+        },
+        "logs": {
+          "group-name": "/aws/codebuild/syslab-practice-build",
+          "stream-name": "7d1e50b4-f1ad-4a40-84b4-d517468477f2",
+          "deep-link": "https://console.aws.amazon.com/cloudwatch/home?region=ap-northeast-2#logsV2:log-groups/log-group/$252Faws$252Fcodebuild$252Fsyslab-practice-build/log-events/7d1e50b4-f1ad-4a40-84b4-d517468477f2"
+        },
+        "environment": {
+          "image": "aws/codebuild/amazonlinux2-x86_64-standard:5.0",
+          "privileged-mode": true,
+          "compute-type": "BUILD_GENERAL1_SMALL",
+          "type": "LINUX_CONTAINER",
+          "environment-variables": [
+            {"name": "ECR_REPOSITORY", "type": "PLAINTEXT", "value": "syslab-practice"},
+            {"name": "AWS_REGION",     "type": "PLAINTEXT", "value": "ap-northeast-2"},
+            {"name": "ACCOUNT_ID",     "type": "PLAINTEXT", "value": "290373175858"}
+          ]
+        },
+        "build-complete": true,
+        "build-number": 8.0,
+        "phases": [
+          {
+            "phase-context": ["YAML_FILE_ERROR: YAML file does not exist"],
+            "phase-type": "DOWNLOAD_SOURCE",
+            "phase-status": "FAILED"
+          }
+        ]
+      },
+      "current-phase": "COMPLETED",
+      "version": "1"
+    }
+  },
+
+  "backend_parsing_guide": {
+    "prob_id_extract": {
+      "field": "detail.additional-information.source.location",
+      "example_value": "syslab-practice-dockerfile/prob-1/source.zip",
+      "regex": "prob-(\\d+)/",
+      "result": "1"
+    },
+    "image_uri_rule": {
+      "format": "290373175858.dkr.ecr.ap-northeast-2.amazonaws.com/syslab-practice:prob-{prob_id}",
+      "example": "290373175858.dkr.ecr.ap-northeast-2.amazonaws.com/syslab-practice:prob-1"
+    },
+    "status_handling": {
+      "SUCCEEDED": "image_status = READY, ecr_image_uri 저장",
+      "FAILED": "image_status = FAILED, build_log_url = logs.deep-link 저장"
+    }
+  }
+}

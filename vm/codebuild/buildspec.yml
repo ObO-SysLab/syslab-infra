@@ -1,0 +1,12 @@
+version: 0.2
+phases:
+  pre_build:
+    commands:
+      - aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin 290373175858.dkr.ecr.ap-northeast-2.amazonaws.com
+  build:
+    commands:
+      - docker build -t syslab-practice .
+      - docker tag syslab-practice:latest 290373175858.dkr.ecr.ap-northeast-2.amazonaws.com/syslab-practice:prob-1
+  post_build:
+    commands:
+      - docker push 290373175858.dkr.ecr.ap-northeast-2.amazonaws.com/syslab-practice:prob-1

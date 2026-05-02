@@ -4,6 +4,7 @@
 *.pem
 *.aws/
 credentials
+private/
 
 # Environment Variables (DB 비밀번호 등)
 .env

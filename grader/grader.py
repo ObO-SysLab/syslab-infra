@@ -9,11 +9,11 @@ import psycopg2
 # ─────────────────────────────────────────
 # 환경변수 수신 (Lambda RunTask 시 주입)
 # ─────────────────────────────────────────
-SUBMISSION_ID  = os.environ['SUBMISSION_ID']
-CODE_S3_KEY    = os.environ['CODE_S3_KEY']       # e.g. submissions/uuid/Main.py
-LANGUAGE       = os.environ['LANGUAGE']           # python | c | cpp
+SUBMISSION_ID  = os.environ['SUBMISSION_ID']   # bigint (문자열로 수신)
+CODE_S3_KEY    = os.environ['CODE_S3_KEY']     # e.g. submissions/123/Main.py
+LANGUAGE       = os.environ['LANGUAGE']         # python | c | cpp
 PROBLEM_ID     = os.environ['PROBLEM_ID']
-TIME_LIMIT     = int(os.environ['TIME_LIMIT'])    # 초 단위
+TIME_LIMIT     = int(os.environ['TIME_LIMIT'])  # 초 단위
 TESTCASE_COUNT = int(os.environ['TESTCASE_COUNT'])
 
 DB_HOST     = os.environ['DB_HOST']
@@ -44,20 +44,48 @@ def get_db_conn():
     )
 
 # ─────────────────────────────────────────
-# submissions 상태 업데이트
+# solve_submission.result 상태 업데이트
 # ─────────────────────────────────────────
-def update_status(conn, status, result=None, runtime_ms=None, memory_kb=None):
+def update_submission_state(conn, state):
+    """
+    state: JUDGING | COMPLETED
+    """
     with conn.cursor() as cur:
         cur.execute(
+            "UPDATE solve_submission SET result = %s WHERE id = %s",
+            (state, SUBMISSION_ID)
+        )
+    conn.commit()
+
+# ─────────────────────────────────────────
+# solve_result + solve_result_coding INSERT
+# ─────────────────────────────────────────
+def insert_result(conn, is_passed, memory_usage, runtime):
+    """
+    is_passed: CORRECT | WRONG | ERROR
+
+    memory_usage: KB 단위
+    runtime: ms 단위
+    """
+    with conn.cursor() as cur:
+        # 1. solve_result INSERT → id 반환
+        cur.execute(
             """
-            UPDATE submissions
-            SET status     = %s,
-                result     = %s,
-                runtime_ms = %s,
-                memory_kb  = %s
-            WHERE id = %s
+            INSERT INTO solve_result (submisson_id, is_passed, memory_useage, runtime)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id
             """,
-            (status, result, runtime_ms, memory_kb, SUBMISSION_ID)
+            (SUBMISSION_ID, is_passed, memory_usage, runtime)
+        )
+        result_id = cur.fetchone()[0]
+
+        # 2. solve_result_coding INSERT
+        cur.execute(
+            """
+            INSERT INTO solve_result_coding (result_id, memory_useage, runtime)
+            VALUES (%s, %s, %s)
+            """,
+            (result_id, memory_usage, runtime)
         )
     conn.commit()
 
@@ -111,9 +139,7 @@ def run_testcase(language, code_path, input_data, time_limit):
             timeout=time_limit
         )
         runtime_ms = int((time.time() - start) * 1000)
-
-        # 자식 프로세스 메모리 측정 (KB 단위)
-        memory_kb = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+        memory_kb  = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
 
         if proc.returncode != 0:
             return 'RUNTIME_ERROR', runtime_ms, memory_kb, ''
@@ -140,7 +166,7 @@ def main():
 
     try:
         # 채점 시작 — JUDGING 상태로 변경
-        update_status(conn, 'JUDGING')
+        update_submission_state(conn, 'JUDGING')
 
         # ① 코드 파일 S3에서 다운로드
         ext_map   = {'python': 'py', 'c': 'c', 'cpp': 'cpp'}
@@ -150,12 +176,13 @@ def main():
         # ② 컴파일
         compile_ok, compile_err = compile_code(LANGUAGE, code_path)
         if not compile_ok:
-            update_status(conn, 'COMPLETED', result='COMPILE_ERROR')
+            update_submission_state(conn, 'COMPLETED')
+            insert_result(conn, 'ERROR', 0, 0)
             print(f'[COMPILE_ERROR] {compile_err}')
             return
 
         # ③ 테스트케이스 순회
-        final_verdict  = 'ACCEPTED'
+        final_verdict  = 'CORRECT'
         max_runtime_ms = 0
         max_memory_kb  = 0
 
@@ -179,23 +206,27 @@ def main():
 
             print(f'  [TC {i}/{TESTCASE_COUNT}] {verdict} ({runtime_ms}ms / {memory_kb}KB)')
 
-            if verdict != 'OK':
-                final_verdict = verdict
+            if verdict == 'TIME_LIMIT_EXCEEDED':
+                final_verdict = 'WRONG'
+                break
+            elif verdict == 'RUNTIME_ERROR':
+                final_verdict = 'ERROR'
+                break
+            elif not compare_output(actual_output, expected):
+                final_verdict = 'WRONG'
                 break
 
-            if not compare_output(actual_output, expected):
-                final_verdict = 'WRONG_ANSWER'
-                break
-
-        # ④ 최종 결과 RDS 저장
-        update_status(conn, 'COMPLETED', result=final_verdict,
-                      runtime_ms=max_runtime_ms, memory_kb=max_memory_kb)
-        print(f'[DONE] submissionId={SUBMISSION_ID} result={final_verdict} runtime={max_runtime_ms}ms memory={max_memory_kb}KB')
+        # ④ 최종 결과 저장
+        update_submission_state(conn, 'COMPLETED')
+        insert_result(conn, final_verdict, max_memory_kb, max_runtime_ms)
+        print(f'[DONE] submissionId={SUBMISSION_ID} result={final_verdict} '
+              f'runtime={max_runtime_ms}ms memory={max_memory_kb}KB')
 
     except Exception as e:
         print(f'[ERROR] {e}', file=sys.stderr)
         try:
-            update_status(conn, 'COMPLETED', result='SYSTEM_ERROR')
+            update_submission_state(conn, 'COMPLETED')
+            insert_result(conn, 'ERROR', 0, 0)
         except Exception:
             pass
         sys.exit(1)

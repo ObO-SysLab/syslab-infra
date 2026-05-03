@@ -2,6 +2,30 @@
 
 > 비용 절약을 위해 삭제했다가 Fargate 사용 시 다시 생성하는 설정 모음
 
+
+```powershell
+aws ec2 describe-security-groups --filters "Name=group-name,Values=SG-Fargate-Grader" --query "SecurityGroups[0].GroupId" --output text --region ap-northeast-2
+```
+
+`sg-0ac1a1862a849e01f` 형태로 나오면 그 값으로 아래 3개 실행해줘요!
+
+**ECR DKR:**
+```powershell
+aws ec2 create-vpc-endpoint --vpc-id vpc-059c175e86a99bd3b --service-name com.amazonaws.ap-northeast-2.ecr.dkr --vpc-endpoint-type Interface --subnet-ids subnet-06d9954c1d63e9407 --security-group-ids sg-0ac1a1862a849e01f --region ap-northeast-2
+```
+
+**ECR API:**
+```powershell
+aws ec2 create-vpc-endpoint --vpc-id vpc-059c175e86a99bd3b --service-name com.amazonaws.ap-northeast-2.ecr.api --vpc-endpoint-type Interface --subnet-ids subnet-06d9954c1d63e9407 --security-group-ids sg-0ac1a1862a849e01f --region ap-northeast-2
+```
+
+**CloudWatch Logs:**
+```powershell
+aws ec2 create-vpc-endpoint --vpc-id vpc-059c175e86a99bd3b --service-name com.amazonaws.ap-northeast-2.logs --vpc-endpoint-type Interface --subnet-ids subnet-06d9954c1d63e9407 --security-group-ids sg-0ac1a1862a849e01f --region ap-northeast-2
+```
+
+SG ID 알려줘요!
+
 ---
 
 ## 생성 위치

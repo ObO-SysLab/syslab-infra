@@ -90,7 +90,7 @@ class RunnerClient:
             launched = True  # Even a transport exception may have launched a task.
             reply = self.ecs.run_task(cluster=self.cluster, taskDefinition=self.definition,
                 launchType='FARGATE', platformVersion='1.4.0', count=1, clientToken=request_id,
-                startedBy=request_id, enableExecuteCommand=False, overrides=overrides,
+                startedBy=request_id, group='diveon:isolated-runner', enableExecuteCommand=False, overrides=overrides,
                 networkConfiguration={'awsvpcConfiguration': {'subnets': [self.subnet],
                     'securityGroups': [self.sg], 'assignPublicIp': 'DISABLED'}})
             tasks = reply.get('tasks', [])
@@ -117,7 +117,7 @@ class RunnerClient:
             raise ExecutionFailure('Runner deadline exceeded')
         finally:
             # Failure to request cleanup propagates; it must not become a judged ERROR.
-            # A dead coordinator is bounded by the runner's independent deadline.
+            # Worker deadline plus the separately deployed stale-runner monitor bound orphan work.
             try:
                 if launched and not stopped:
                     if task_arn:

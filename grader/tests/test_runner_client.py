@@ -51,6 +51,7 @@ class RunnerClientTest(unittest.TestCase):
         call = self.ecs.run_task.call_args.kwargs
         self.assertEqual(call['taskDefinition'], ARN)
         self.assertFalse(call['enableExecuteCommand'])
+        self.assertEqual(call['group'], 'diveon:isolated-runner')
         self.assertEqual(call['platformVersion'], '1.4.0')
         values = call['overrides']['containerOverrides'][0]['environment']
         self.assertEqual({v['name'] for v in values}, {'REQUEST_URL', 'RESULT_POST'})

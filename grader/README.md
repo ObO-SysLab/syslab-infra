@@ -129,7 +129,9 @@ AUDIT-01 stays P0 open, with AUDIT-09 linked and unresolved, until these safegua
 See [ISOLATION-VALIDATION.md](ISOLATION-VALIDATION.md) for approved execution/cleanup.
 Pure Python 27, Node 8, disposable PostgreSQL 32, actual Linux sandbox 5 tests passed.
 No production DB/AWS, deployment or remote push. Local Docker is not Fargate validation.
-The PostgreSQL harness still uses Windows executables (AUDIT-08).
+AUDIT-08: PostgreSQL harnesses now require DIVEON_GRADING_PG_TEST=approved and explicit PG_BIN;
+executable suffixes support Windows and Unix. Default discovery skips all 35 DB cases.
+Source packaging and CI details: [release procedure](../ops/RELEASE.md).
 
 Sources: [Fargate task boundary](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-iam-roles.html),
 [Fargate restrictions](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/fargate-tasks-services.html),

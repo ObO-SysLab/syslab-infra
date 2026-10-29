@@ -20,7 +20,6 @@ import time
 import unittest
 from unittest.mock import Mock
 
-import psycopg2
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import execution_protocol as protocol
 
@@ -41,12 +40,14 @@ def load_handler(submission_id):
     return namespace
 
 
+@unittest.skipUnless(os.environ.get("DIVEON_GRADING_PG_TEST") == "approved", "Requires explicit disposable DB opt-in")
 class ContestResultTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         suffix = '.exe' if os.name == 'nt' else ''
-        default_bin = 'C:/Program Files/PostgreSQL/17/bin' if os.name == 'nt' else ''
-        pg_bin = Path(os.environ.get('PG_BIN', default_bin))
+        if not os.environ.get('PG_BIN'):
+            raise RuntimeError('Set PG_BIN explicitly for the approved PostgreSQL installation.')
+        pg_bin = Path(os.environ['PG_BIN'])
         cls.pg_ctl = str(pg_bin / ('pg_ctl' + suffix))
         initdb = str(pg_bin / ('initdb' + suffix))
         if not (Path(initdb).is_file() or shutil.which(initdb)):
@@ -121,6 +122,7 @@ class ContestResultTest(unittest.TestCase):
 
     @classmethod
     def connect(cls):
+        import psycopg2
         return psycopg2.connect(host='127.0.0.1', port=cls.port,
                                 user='postgres', dbname='postgres', connect_timeout=5)
 

@@ -54,15 +54,32 @@ def get_db_conn():
     )
 
 # ───────────────────────────────────────────
-# [공통] solve_submission 상태 업데이트
+# [공통] 제출별 결과 저장 직렬화
 # ───────────────────────────────────────────
-def update_submission_state(conn, state):
+def lock_submission(conn):
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE solve_submission SET submission_state = %s WHERE id = %s",
-            (state, SUBMISSION_ID)
+            "SELECT submission_state, prob_id FROM solve_submission WHERE id = %s FOR UPDATE",
+            (SUBMISSION_ID,)
         )
-    conn.commit()
+        row = cur.fetchone()
+    if row is None or str(row[1]) != str(PROBLEM_ID):
+        raise ValueError('Submission not found or problem does not match')
+    return row[0]
+
+
+def begin_grading(conn):
+    with conn:
+        if lock_submission(conn) == 'COMPLETED':
+            return False
+        with conn.cursor() as cur:
+            cur.execute("UPDATE solve_submission SET submission_state = 'JUDGING' WHERE id = %s",
+                        (SUBMISSION_ID,))
+    return True
+
+
+
+
 
 # ───────────────────────────────────────────
 # [공통] solve_result + solve_result_coding INSERT
@@ -89,23 +106,20 @@ def insert_result(conn, result_status, memory_usage, runtime, code_size):
             """,
             (result_id, memory_mb, runtime, code_size, score)
         )
-    conn.commit()
 
 # ───────────────────────────────────────────
-# [공통] problem_summary 제출/정답 카운트 증가
+# [공통] 정답 통계만 반영 (제출 횟수는 백엔드 접수 시 집계)
 # ───────────────────────────────────────────
-def update_problem_counts(conn, is_correct):
+def update_solved_count(conn, is_correct):
     with conn.cursor() as cur:
         cur.execute(
             """
             UPDATE problem_summary
-            SET submitted_count = submitted_count + 1,
-                solved_count = solved_count + CASE WHEN %s THEN 1 ELSE 0 END
+            SET solved_count = solved_count + CASE WHEN %s THEN 1 ELSE 0 END
             WHERE id = %s
             """,
             (is_correct, PROBLEM_ID)
         )
-    conn.commit()
 
 # ───────────────────────────────────────────
 # [대회] solve_submission_id로 contest_submission 조회
@@ -240,6 +254,27 @@ def handle_contest_result(conn, is_correct):
         change = apply_contest_result(conn, is_correct)
     publish_scoreboard(change)
 
+
+def finalize_submission(conn, result_status, memory_usage, runtime, code_size):
+    """Persist one result, its statistics, contest score and completion atomically."""
+    with conn:
+        if lock_submission(conn) == 'COMPLETED':
+            return False
+        with conn.cursor() as cur:
+            cur.execute('SELECT id FROM solve_result WHERE submission_id = %s', (SUBMISSION_ID,))
+            if cur.fetchone() is not None:
+                # Historical partial writes need review, not another result row.
+                raise ValueError('An unfinished submission already has a result')
+        is_correct = result_status == 'CORRECT'
+        insert_result(conn, result_status, memory_usage, runtime, code_size)
+        change = apply_contest_result(conn, is_correct) if IS_CONTEST else None
+        update_solved_count(conn, is_correct)
+        with conn.cursor() as cur:
+            cur.execute("UPDATE solve_submission SET submission_state = 'COMPLETED' WHERE id = %s",
+                        (SUBMISSION_ID,))
+    publish_scoreboard(change)
+    return True
+
 # ───────────────────────────────────────────
 # S3 다운로드
 # ───────────────────────────────────────────
@@ -315,7 +350,9 @@ def main():
 
     try:
         # 채점 시작 → JUDGING 상태로 변경 (solve_submission은 항상 업데이트)
-        update_submission_state(conn, 'JUDGING')
+        if not begin_grading(conn):
+            print(f'[SKIP] submissionId={SUBMISSION_ID} already completed')
+            return 0
 
         # ① 코드 파일 S3에서 다운로드
         ext_map   = {'python': 'py', 'c': 'c', 'cpp': 'cpp'}
@@ -326,10 +363,7 @@ def main():
         # ② 컴파일
         compile_ok, compile_err = compile_code(LANGUAGE, code_path)
         if not compile_ok:
-            update_submission_state(conn, 'COMPLETED')
-            insert_result(conn, 'ERROR', 0, 0, 0)
-            if IS_CONTEST:
-                handle_contest_result(conn, False)
+            finalize_submission(conn, 'ERROR', 0, 0, code_size)
             print(f'[COMPILE_ERROR] {compile_err}')
             return
 
@@ -369,34 +403,21 @@ def main():
                 break
 
         # ④ 최종 결과 저장 (solve_submission + solve_result 는 항상)
-        is_correct = (final_verdict == 'CORRECT')
-        update_submission_state(conn, 'COMPLETED')
-        insert_result(conn, final_verdict, max_memory_kb, max_runtime_ms, code_size)
-
-        # problem_summary 제출/정답 카운트 증가 (일반 + 대회 공통)
-        update_problem_counts(conn, is_correct)
-
-        # 대회 제출이면 contest_submission 업데이트 + 점수/Redis 처리 추가
-        if IS_CONTEST:
-            handle_contest_result(conn, is_correct)
+        finalize_submission(conn, final_verdict, max_memory_kb, max_runtime_ms, code_size)
 
         print(f'[DONE] submissionId={SUBMISSION_ID} result={final_verdict} '
               f'runtime={max_runtime_ms}ms memory={max_memory_kb}KB contest={IS_CONTEST}')
 
     except Exception as e:
+        # Infrastructure/persistence failures are not a judged ERROR verdict.
+        # Leave the uncommitted result retryable; never replace a committed result.
+        conn.rollback()
         print(f'[ERROR] {e}', file=sys.stderr)
-        try:
-            update_submission_state(conn, 'COMPLETED')
-            insert_result(conn, 'ERROR', 0, 0, 0)
-            if IS_CONTEST:
-                handle_contest_result(conn, False)
-        except Exception:
-            pass
-        sys.exit(1)
+        return 1
 
     finally:
         conn.close()
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

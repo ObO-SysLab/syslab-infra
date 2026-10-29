@@ -134,14 +134,18 @@ def insert_result(conn, result_status, memory_usage, runtime, code_size):
 # [공통] 정답 통계만 반영 (제출 횟수는 백엔드 접수 시 집계)
 # ───────────────────────────────────────────
 def update_solved_count(conn, is_correct):
+    if not is_correct:
+        return
     with conn.cursor() as cur:
         cur.execute(
-            """
-            UPDATE problem_summary
-            SET solved_count = solved_count + CASE WHEN %s THEN 1 ELSE 0 END
-            WHERE id = %s
-            """,
-            (is_correct, PROBLEM_ID)
+            """WITH added AS (
+                INSERT INTO problem_solver(prob_id, user_id)
+                SELECT prob_id, user_id FROM solve_submission WHERE id = %s AND prob_id = %s
+                ON CONFLICT (prob_id, user_id) DO NOTHING RETURNING prob_id
+            )
+            UPDATE problem_summary SET solved_count = solved_count + 1
+            WHERE id = %s AND EXISTS (SELECT 1 FROM added)""",
+            (SUBMISSION_ID, PROBLEM_ID, PROBLEM_ID)
         )
 
 # ───────────────────────────────────────────
@@ -200,7 +204,7 @@ def add_contest_score(conn, contest_id, user_id, points):
         cur.execute(
             """
             UPDATE contest_participant
-            SET score = score + %s, last_solved_at = NOW()
+            SET score = score + %s, last_solved_at = clock_timestamp() AT TIME ZONE 'UTC'
             WHERE contest_id = %s AND user_id = %s
             RETURNING score
             """,
@@ -213,10 +217,9 @@ def add_contest_score(conn, contest_id, user_id, points):
 # [대회] Redis 스코어보드 갱신
 # ───────────────────────────────────────────
 def update_scoreboard(contest_id, user_id, new_total_score):
-    r = redis_module.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
-    epoch_second    = int(time.time())
-    composite_score = new_total_score * 1_000_000 - epoch_second
-    r.zadd(f"scoreboard:{contest_id}", {str(user_id): composite_score})
+    # Compatibility hook for result persistence tests. Ranking now reads committed
+    # DB rows; no Redis write can roll the visible ordering back to an older score.
+    return None
 
 # ───────────────────────────────────────────
 # [대회] 채점 완료 후 대회 전용 후처리

@@ -89,7 +89,11 @@ class ContestResultTest(unittest.TestCase):
                     );
                     CREATE TABLE solve_submission (
                         id bigint PRIMARY KEY, prob_id bigint REFERENCES problem_summary,
-                        submission_state text NOT NULL
+                        submission_state text NOT NULL, user_id bigint NOT NULL DEFAULT 7
+                    );
+                    CREATE TABLE problem_solver (
+                        prob_id bigint REFERENCES problem_summary ON DELETE CASCADE,
+                        user_id bigint NOT NULL, PRIMARY KEY (prob_id, user_id)
                     );
                     CREATE TABLE solve_result (
                         id bigserial PRIMARY KEY, submission_id bigint REFERENCES solve_submission,
@@ -133,7 +137,7 @@ class ContestResultTest(unittest.TestCase):
         self.addCleanup(self.conn.close)
         with self.conn, self.conn.cursor() as cur:
             cur.execute('TRUNCATE contest_submission, contest_participant')
-            cur.execute('TRUNCATE coding_grade_job, solve_result_coding, solve_result, solve_submission, problem_summary')
+            cur.execute('TRUNCATE problem_solver, coding_grade_job, solve_result_coding, solve_result, solve_submission, problem_summary')
             cur.execute('ALTER TABLE contest_participant DROP CONSTRAINT IF EXISTS injected_failure')
             cur.execute('ALTER TABLE problem_summary DROP CONSTRAINT IF EXISTS injected_failure')
             cur.execute('ALTER TABLE solve_result_coding DROP CONSTRAINT IF EXISTS injected_failure')
@@ -278,7 +282,7 @@ class ContestResultTest(unittest.TestCase):
         self.scope.update(PROBLEM_ID='2', IS_CONTEST=contest)
         with self.conn, self.conn.cursor() as cur:
             cur.execute('INSERT INTO problem_summary VALUES (2, 1, 0)')
-            cur.execute("INSERT INTO solve_submission VALUES (101, 2, 'PENDING')")
+            cur.execute("INSERT INTO solve_submission (id, prob_id, submission_state) VALUES (101, 2, 'PENDING')")
             if not contest:
                 cur.execute('DELETE FROM contest_submission')
 
@@ -381,6 +385,52 @@ class ContestResultTest(unittest.TestCase):
         self.prepare_full_submission()
         self.assertTrue(self.finalize())
         self.assertFalse(self.finalize())
+        self.assertEqual(self.full_state(), ('COMPLETED', 1, 1, 1, 1))
+
+    def test_repeated_correct_submissions_count_one_solver(self):
+        self.prepare_full_submission()
+        self.finalize()
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute("INSERT INTO solve_submission (id, prob_id, submission_state) VALUES (102, 2, 'PENDING')")
+        other = load_handler(102)
+        other.update(PROBLEM_ID='2', IS_CONTEST=False)
+        self.finalize(scope=other)
+        self.assertEqual(self.full_state(), ('COMPLETED', 1, 1, 2, 2))
+
+    def test_different_users_count_two_solvers(self):
+        self.prepare_full_submission()
+        self.finalize()
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute("INSERT INTO solve_submission (id, prob_id, submission_state, user_id) VALUES (102, 2, 'PENDING', 8)")
+        other = load_handler(102)
+        other.update(PROBLEM_ID='2', IS_CONTEST=False)
+        self.finalize(scope=other)
+        self.assertEqual(self.full_state(), ('COMPLETED', 1, 2, 2, 2))
+
+    def test_java_and_python_share_solver_deduplication_under_concurrency(self):
+        self.prepare_full_submission()
+        backend = Path(__file__).resolve().parents[3] / 'syslab-backend/src/main/java/net/diveon/backend/domain/problem/repository/ProblemRepository.java'
+        source = backend.read_text(encoding='utf-8-sig')
+        sql = source.split('WITH added AS (', 1)[1].split('"""', 1)[0]
+        sql = ('WITH added AS (' + sql).replace(':problemId', '%(problem)s').replace(':userId', '%(user)s')
+        barrier = threading.Barrier(2)
+
+        def java_writer():
+            with closing(self.connect()) as conn, conn, conn.cursor() as cur:
+                barrier.wait(timeout=5)
+                cur.execute(sql, {'problem': 2, 'user': 7})
+
+        def python_writer():
+            scope = load_handler(101)
+            scope.update(PROBLEM_ID='2', IS_CONTEST=False)
+            with closing(self.connect()) as conn:
+                barrier.wait(timeout=5)
+                self.finalize(scope=scope, conn=conn)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first, second = pool.submit(java_writer), pool.submit(python_writer)
+            first.result(timeout=15)
+            second.result(timeout=15)
         self.assertEqual(self.full_state(), ('COMPLETED', 1, 1, 1, 1))
 
     def test_completed_submission_is_not_reopened(self):

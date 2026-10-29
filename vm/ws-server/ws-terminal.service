@@ -1,0 +1,21 @@
+[Unit]
+Description=DiveOn authenticated PTY terminal
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/ws-server
+EnvironmentFile=/etc/diveon/terminal.env
+ExecStart=/usr/bin/node /home/ec2-user/ws-server/server.js
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

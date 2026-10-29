@@ -32,3 +32,11 @@
 AWS/DB 배포 및 외부 비밀 공급, GitHub 보호 규칙/승인자 설정, 실제 CI와 브라우저 통합, 큐 DLQ/visibility와 Lambda timeout 대조는 미실시다. 이 workflow에는 AWS 자격증명·배포 단계가 없다.
 
 참고: [GitHub artifact](https://docs.github.com/en/actions/tutorials/store-and-share-data), [deployment protection](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/control-deployments).
+
+## 2026-10-30 승인된 로컬 검증
+
+- 사용자 승인 후 Python PostgreSQL 38개(기존 32+해결자 3+실제 migration/순위 3) 모두 통과. 첫 실행의 psycopg2 예외 import 누락 4건은 f2d3719에서 opt-in import로 보완했다. 운영 제품 SQL 수정 없이 재실행 통과했다.
+- Java 복구/VM JPA 14개도 별도 통과. 기본 Java 209·Python mock 73·Node 37·프론트 76과 합계 447개, 중복 재실행 제외.
+- 네 신규 DB(초기 실패 실행 포함)는 postmaster.pid 부재, pg_ctl status 3/no server running, shutdown 로그 확인. 기존 postgres 7개 프로세스는 보존했다.
+- 로컬 실제 ZIP 검증에서 index.handler를 보존하도록 index.mjs+launch.mjs를 확인했다. monitor handler도 manifest에 기록한다. 원격 CI/실제 Docker 재기동·Fargate·운영 배포는 수행하지 않았다.
+- 실제 대회/실습 Spring JPA 전체 흐름, Redis/PTY/SSH/브라우저, AWS 권한/통신/스케줄과 기존 운영 데이터는 별도 검증 대상이다. AUDIT-01 P0 유지.

@@ -30,7 +30,7 @@ def load_handler(submission_id):
     tree = ast.parse(source.read_text(encoding='utf-8-sig'))
     functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)]
     namespace = {
-        'sys': sys, 'time': time, 'os': os, 'SUBMISSION_ID': str(submission_id),
+        'sys': sys, 'time': time, 'os': os, 'SUBMISSION_ID': str(submission_id), 'GRADING_ATTEMPT': None,
         'CONTEST_ID': '1', 'CONTEST_PROBLEM_ID': '2', 'CONTEST_POINTS': 100,
     }
     exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), 'exec'), namespace)
@@ -97,6 +97,11 @@ class ContestResultTest(unittest.TestCase):
                         memory_usage integer, runtime integer, code_size integer, score integer
                     );
                 ''')
+                cur.execute('''CREATE TABLE coding_grade_job (
+                    submission_id bigint PRIMARY KEY REFERENCES solve_submission,
+                    attempt_no integer NOT NULL, deadline_at timestamptz NOT NULL,
+                    finished_at timestamptz, failure_code text
+                )''')
 
     @classmethod
     def run_pg(cls, *args, **kwargs):
@@ -125,7 +130,7 @@ class ContestResultTest(unittest.TestCase):
         self.addCleanup(self.conn.close)
         with self.conn, self.conn.cursor() as cur:
             cur.execute('TRUNCATE contest_submission, contest_participant')
-            cur.execute('TRUNCATE solve_result_coding, solve_result, solve_submission, problem_summary')
+            cur.execute('TRUNCATE coding_grade_job, solve_result_coding, solve_result, solve_submission, problem_summary')
             cur.execute('ALTER TABLE contest_participant DROP CONSTRAINT IF EXISTS injected_failure')
             cur.execute('ALTER TABLE problem_summary DROP CONSTRAINT IF EXISTS injected_failure')
             cur.execute('ALTER TABLE solve_result_coding DROP CONSTRAINT IF EXISTS injected_failure')
@@ -273,6 +278,88 @@ class ContestResultTest(unittest.TestCase):
             cur.execute("INSERT INTO solve_submission VALUES (101, 2, 'PENDING')")
             if not contest:
                 cur.execute('DELETE FROM contest_submission')
+
+    def prepare_tracked_submission(self, contest=False):
+        self.prepare_full_submission(contest)
+        self.scope['GRADING_ATTEMPT'] = 1
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute("INSERT INTO coding_grade_job VALUES (101, 1, clock_timestamp() + interval '1 hour', NULL, NULL)")
+
+    def test_expired_worker_cannot_begin_or_finalize(self):
+        self.prepare_tracked_submission()
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute("UPDATE coding_grade_job SET deadline_at = clock_timestamp() - interval '1 second'")
+        self.assertFalse(self.scope['begin_grading'](self.conn))
+        self.assertFalse(self.finalize())
+        self.assertEqual(self.full_state(), ('PENDING', 1, 0, 0, 0))
+
+    def test_stale_attempt_cannot_overwrite_new_attempt(self):
+        self.prepare_tracked_submission(contest=True)
+        self.assertTrue(self.scope['begin_grading'](self.conn))
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('UPDATE coding_grade_job SET attempt_no = 2')
+        self.assertFalse(self.finalize())
+        self.scope['report_attempt_failure'](self.conn)
+        self.scope['GRADING_ATTEMPT'] = 2
+        self.assertTrue(self.finalize())
+        self.assertEqual(self.score(), 100)
+        self.assertEqual(self.full_state(), ('COMPLETED', 1, 1, 1, 1))
+
+    def test_failed_submission_rejects_late_results_including_legacy(self):
+        self.prepare_tracked_submission()
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute("UPDATE solve_submission SET submission_state = 'FAILED'")
+        self.assertFalse(self.finalize())
+        self.scope['GRADING_ATTEMPT'] = None
+        self.assertFalse(self.scope['begin_grading'](self.conn))
+        self.assertFalse(self.finalize())
+        self.assertEqual(self.full_state(), ('FAILED', 1, 0, 0, 0))
+
+    def test_infrastructure_failure_expires_current_attempt_without_false_verdict(self):
+        self.prepare_tracked_submission()
+        self.scope['begin_grading'](self.conn)
+        self.scope['report_attempt_failure'](self.conn)
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('SELECT deadline_at <= clock_timestamp(), failure_code, finished_at FROM coding_grade_job')
+            self.assertEqual(cur.fetchone(), (True, 'WORKER_FAILED', None))
+        self.assertEqual(self.full_state(), ('JUDGING', 1, 0, 0, 0))
+
+    def test_wrong_and_compiler_error_are_terminal_verdicts_not_infrastructure_failures(self):
+        self.prepare_tracked_submission()
+        self.assertTrue(self.finalize('ERROR'))
+        self.scope['report_attempt_failure'](self.conn)
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('SELECT finished_at IS NOT NULL, failure_code FROM coding_grade_job')
+            self.assertEqual(cur.fetchone(), (True, None))
+        self.assertFalse(self.finalize('WRONG'))
+        self.assertEqual(self.full_state(), ('COMPLETED', 1, 0, 1, 1))
+
+    def test_job_completion_rolls_back_with_result_failure(self):
+        self.prepare_tracked_submission(contest=True)
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE problem_summary ADD CONSTRAINT injected_failure CHECK (solved_count = 0)')
+        with self.assertRaises(psycopg2.errors.CheckViolation):
+            self.finalize()
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('SELECT finished_at FROM coding_grade_job')
+            self.assertIsNone(cur.fetchone()[0])
+        self.assertEqual(self.score(), 0)
+        self.assertEqual(self.full_state(), ('PENDING', 1, 0, 0, 0))
+
+    def test_tracked_duplicate_workers_commit_one_result(self):
+        self.prepare_tracked_submission(contest=True)
+        barrier = threading.Barrier(2)
+        def run():
+            scope = load_handler(101)
+            scope.update(PROBLEM_ID='2', IS_CONTEST=True, GRADING_ATTEMPT=1)
+            with closing(self.connect()) as conn:
+                barrier.wait(timeout=5)
+                return self.finalize(scope=scope, conn=conn)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            outcomes = list(pool.map(lambda _: run(), range(2)))
+        self.assertEqual(sorted(outcomes), [False, True])
+        self.assertEqual(self.full_state(), ('COMPLETED', 1, 1, 1, 1))
+        self.assertEqual(self.score(), 100)
 
     def full_state(self, conn=None):
         with (conn or self.conn).cursor() as cur:

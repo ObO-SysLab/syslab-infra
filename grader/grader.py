@@ -16,6 +16,7 @@ LANGUAGE       = os.environ['LANGUAGE']         # python | c | cpp
 PROBLEM_ID     = os.environ['PROBLEM_ID']
 TIME_LIMIT     = int(os.environ['TIME_LIMIT'])  # 초 단위
 TESTCASE_COUNT = int(os.environ['TESTCASE_COUNT'])
+GRADING_ATTEMPT = int(os.environ['GRADING_ATTEMPT']) if os.environ.get('GRADING_ATTEMPT') else None
 
 # 대회 컨텍스트 (대회 제출일 때만 세팅, 일반 제출이면 None)
 CONTEST_ID         = os.environ.get('CONTEST_ID')
@@ -70,16 +71,39 @@ def lock_submission(conn):
 
 def begin_grading(conn):
     with conn:
-        if lock_submission(conn) == 'COMPLETED':
+        if lock_submission(conn) in ('COMPLETED', 'FAILED') or not current_attempt(conn):
             return False
         with conn.cursor() as cur:
             cur.execute("UPDATE solve_submission SET submission_state = 'JUDGING' WHERE id = %s",
                         (SUBMISSION_ID,))
+            if IS_CONTEST:
+                cur.execute("UPDATE contest_submission SET submission_status = 'JUDGING' "
+                            "WHERE submission_id = %s AND submission_status = 'PENDING'", (SUBMISSION_ID,))
     return True
 
 
+def current_attempt(conn):
+    """Caller holds solve_submission lock. Fence late/expired workers before any writes."""
+    if GRADING_ATTEMPT is None:
+        return True  # Drain legacy requests before enabling durable dispatch.
+    with conn.cursor() as cur:
+        cur.execute('''SELECT attempt_no, finished_at, deadline_at > clock_timestamp()
+                       FROM coding_grade_job WHERE submission_id = %s FOR UPDATE''', (SUBMISSION_ID,))
+        row = cur.fetchone()
+    return row is not None and row[0] == GRADING_ATTEMPT and row[1] is None and row[2]
 
 
+def report_attempt_failure(conn):
+    if GRADING_ATTEMPT is None:
+        return
+    with conn:
+        if lock_submission(conn) in ('COMPLETED', 'FAILED'):
+            return
+        with conn.cursor() as cur:
+            cur.execute('''UPDATE coding_grade_job
+                           SET deadline_at = clock_timestamp(), failure_code = 'WORKER_FAILED'
+                           WHERE submission_id = %s AND attempt_no = %s AND finished_at IS NULL''',
+                        (SUBMISSION_ID, GRADING_ATTEMPT))
 
 # ───────────────────────────────────────────
 # [공통] solve_result + solve_result_coding INSERT
@@ -258,7 +282,7 @@ def handle_contest_result(conn, is_correct):
 def finalize_submission(conn, result_status, memory_usage, runtime, code_size):
     """Persist one result, its statistics, contest score and completion atomically."""
     with conn:
-        if lock_submission(conn) == 'COMPLETED':
+        if lock_submission(conn) in ('COMPLETED', 'FAILED') or not current_attempt(conn):
             return False
         with conn.cursor() as cur:
             cur.execute('SELECT id FROM solve_result WHERE submission_id = %s', (SUBMISSION_ID,))
@@ -272,6 +296,10 @@ def finalize_submission(conn, result_status, memory_usage, runtime, code_size):
         with conn.cursor() as cur:
             cur.execute("UPDATE solve_submission SET submission_state = 'COMPLETED' WHERE id = %s",
                         (SUBMISSION_ID,))
+            if GRADING_ATTEMPT is not None:
+                cur.execute('''UPDATE coding_grade_job SET finished_at = clock_timestamp(), failure_code = NULL
+                               WHERE submission_id = %s AND attempt_no = %s''',
+                            (SUBMISSION_ID, GRADING_ATTEMPT))
     publish_scoreboard(change)
     return True
 
@@ -351,7 +379,7 @@ def main():
     try:
         # 채점 시작 → JUDGING 상태로 변경 (solve_submission은 항상 업데이트)
         if not begin_grading(conn):
-            print(f'[SKIP] submissionId={SUBMISSION_ID} already completed')
+            print(f'[SKIP] submissionId={SUBMISSION_ID} terminal or stale attempt')
             return 0
 
         # ① 코드 파일 S3에서 다운로드
@@ -412,6 +440,10 @@ def main():
         # Infrastructure/persistence failures are not a judged ERROR verdict.
         # Leave the uncommitted result retryable; never replace a committed result.
         conn.rollback()
+        try:
+            report_attempt_failure(conn)
+        except Exception:
+            conn.rollback()  # Unreachable DB / process death is recovered by the durable deadline.
         print(f'[ERROR] {e}', file=sys.stderr)
         return 1
 

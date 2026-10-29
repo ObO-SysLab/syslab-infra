@@ -70,6 +70,12 @@ class LifecycleTest(unittest.TestCase):
         self.assertEqual('MISSING', self.request('remove')['status'])
         self.assertTrue(self.root.joinpath('10.closed').exists())
 
+    def test_create_preserves_practice_image_digest(self):
+        image = 'registry/practice@sha256:' + 'a' * 64
+        self.assertEqual('RUNNING', self.request('create', image=image)['status'])
+        creates = [c for c in self.docker.calls if c[1] == 'create']
+        self.assertEqual([image, 'sleep', 'infinity'], creates[0][-3:])
+
     def test_inspect_never_creates_or_removes(self):
         self.assertEqual('MISSING', self.request('inspect')['status'])
         self.assertEqual(['ls'], [c[1] for c in self.docker.calls])

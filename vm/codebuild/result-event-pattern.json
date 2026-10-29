@@ -1,0 +1,5 @@
+{
+  "source": ["aws.codebuild"],
+  "detail-type": ["CodeBuild Build State Change"],
+  "detail": {"project-name": ["syslab-practice-build"]}
+}

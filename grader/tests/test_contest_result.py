@@ -21,6 +21,9 @@ import unittest
 import uuid
 from unittest.mock import Mock
 
+if os.environ.get("DIVEON_GRADING_PG_TEST") == "approved":
+    import psycopg2  # Also used by exception assertions; default discovery needs no DB driver.
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import execution_protocol as protocol
 

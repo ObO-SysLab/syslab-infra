@@ -21,6 +21,8 @@ import unittest
 from unittest.mock import Mock
 
 import psycopg2
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import execution_protocol as protocol
 
 
 def load_handler(submission_id):
@@ -34,6 +36,7 @@ def load_handler(submission_id):
         'CONTEST_ID': '1', 'CONTEST_PROBLEM_ID': '2', 'CONTEST_POINTS': 100,
     }
     exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), 'exec'), namespace)
+    namespace.update({name: getattr(protocol, name) for name in ('MAX_SOURCE', 'MAX_INPUT', 'MAX_OUTPUT', 'MAX_TIME', 'MAX_MEMORY_MB', 'MAX_CASES', 'integer', 'decode')})
     namespace['update_scoreboard'] = Mock()
     return namespace
 
@@ -465,27 +468,27 @@ class ContestResultTest(unittest.TestCase):
         work = self.directory / self._testMethodName
         work.mkdir()
         self.scope.update(
-            boto3=Mock(), get_db_conn=self.connect, LANGUAGE='python',
-            CODE_S3_KEY='test/Main.py', TIME_LIMIT=1, TESTCASE_COUNT=1, WORK_DIR=str(work),
-            compile_code=Mock(return_value=(True, '')),
-            run_testcase=Mock(return_value=('OK', 1, 1024, '1\n')),
-            download_from_s3=lambda client, key, path: Path(path).write_text('1\n'),
+            create_storage_client=Mock(), get_db_conn=self.connect, LANGUAGE='python',
+            CODE_S3_KEY='test/Main.py', TIME_LIMIT=1, MEMORY_LIMIT=256, TESTCASE_COUNT=1, S3_BUCKET='fixture',
+            create_runner=Mock(return_value=Mock(execute=Mock(return_value={
+                'compileError': False, 'cases': [{'verdict': 'OK', 'runtimeMs': 1, 'memoryKb': 1024, 'stdout': protocol.encode(b'1\n')}]}))),
+            read_object=Mock(return_value=b'1\n'),
         )
 
     def test_main_compile_failure_saves_one_error_result(self):
         self.setup_main()
-        self.scope['compile_code'].return_value = (False, 'bad syntax')
+        self.scope['create_runner'].return_value.execute.return_value = {'compileError': True, 'cases': []}
         self.scope['main']()
         self.scope['main']()
         self.assertEqual(self.full_state(), ('COMPLETED', 1, 0, 1, 1))
 
     def test_main_storage_failure_does_not_create_fake_error_and_can_retry(self):
         self.setup_main()
-        download = self.scope['download_from_s3']
-        self.scope['download_from_s3'] = Mock(side_effect=RuntimeError('S3 unavailable in test'))
+        download = self.scope['read_object']
+        self.scope['read_object'] = Mock(side_effect=RuntimeError('S3 unavailable in test'))
         self.assertEqual(self.scope['main'](), 1)
         self.assertEqual(self.full_state(), ('JUDGING', 1, 0, 0, 0))
-        self.scope['download_from_s3'] = download
+        self.scope['read_object'] = download
         self.scope['main']()
         self.assertEqual(self.full_state(), ('COMPLETED', 1, 1, 1, 1))
 

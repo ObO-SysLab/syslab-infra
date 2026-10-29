@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { buildRunTaskInput, launchBatch } from '../launch.mjs';
 
 const job = { submissionId: '101', s3Key: 'submissions/101/Main.py', language: 'python',
-    problemId: '2', timeLimit: 1, testcaseCount: 3, attemptNo: 1 };
+    problemId: '2', timeLimit: 1, memoryLimit: 256, testcaseCount: 3, attemptNo: 1 };
 const env = { ECS_CLUSTER: 'test', TASK_DEFINITION: 'test:1', SUBNET_ID: 'subnet-test',
     SECURITY_GROUP: 'sg-test', DB_HOST: 'localhost', DB_PASSWORD: 'fixture' };
 const event = value => ({ Records: [{ messageId: 'message-1', body: JSON.stringify(value) }] });
@@ -22,6 +22,18 @@ test('contest context and attempt reach the worker', () => {
     assert.equal(vars.CONTEST_ID, '4');
     assert.equal(vars.CONTEST_PROBLEM_ID, '9');
     assert.equal(vars.CONTEST_POINTS, '100');
+    assert.equal(vars.MEMORY_LIMIT, '256');
+    assert.equal(vars.DB_HOST, undefined);
+    assert.equal(vars.DB_PASSWORD, undefined);
+});
+
+test('missing, fractional and out-of-range limits never reach ECS', async () => {
+    for (const changes of [{ memoryLimit: undefined }, { memoryLimit: 0 }, { memoryLimit: 2048 },
+        { timeLimit: 0.5 }, { timeLimit: 31 }, { testcaseCount: 101 }, { timeLimit: 30, testcaseCount: 100 }]) {
+        let calls = 0;
+        await assert.rejects(launchBatch(event({ ...job, ...changes }), async () => { calls++; return accepted; }, env));
+        assert.equal(calls, 0);
+    }
 });
 test('HTTP success with ECS failures does not acknowledge SQS', async () => {
     await assert.rejects(launchBatch(event(job), async () => ({ tasks: [], failures: [{ reason: 'capacity' }] }), env));

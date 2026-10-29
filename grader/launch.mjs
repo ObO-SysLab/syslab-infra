@@ -2,17 +2,21 @@ import { createHash } from "node:crypto";
 
 // Separate from the SDK adapter so failure handling can be tested without calling AWS.
 export function buildRunTaskInput(job, recordId, env) {
-    for (const field of ['submissionId', 's3Key', 'language', 'problemId', 'timeLimit', 'testcaseCount']) {
+    for (const field of ['submissionId', 's3Key', 'language', 'problemId', 'timeLimit', 'memoryLimit', 'testcaseCount']) {
         if (job[field] === undefined || job[field] === null) throw new Error(`Missing field: ${field}`);
     }
     if (!['python', 'c', 'cpp'].includes(job.language)) throw new Error('Unsupported language');
+    for (const [name, min, max] of [['timeLimit', 1, 30], ['memoryLimit', 16, 1024], ['testcaseCount', 1, 100]]) {
+        if (!Number.isInteger(job[name]) || job[name] < min || job[name] > max) throw new Error(`Invalid ${name}`);
+    }
+    if (20 + job.testcaseCount * (job.timeLimit + 2) > 600) throw new Error('Execution budget exceeded');
     if (job.attemptNo != null && (!Number.isInteger(job.attemptNo) || job.attemptNo < 1 || job.attemptNo > 3)) {
         throw new Error('Invalid grading attempt');
     }
     const environment = [
         ['SUBMISSION_ID', job.submissionId], ['CODE_S3_KEY', job.s3Key], ['LANGUAGE', job.language],
         ['PROBLEM_ID', job.problemId], ['TIME_LIMIT', job.timeLimit], ['TESTCASE_COUNT', job.testcaseCount],
-        ['DB_HOST', env.DB_HOST], ['DB_PASSWORD', env.DB_PASSWORD],
+        ['MEMORY_LIMIT', job.memoryLimit],
     ].map(([name, value]) => ({ name, value: String(value) }));
     if (job.attemptNo != null) environment.push({ name: 'GRADING_ATTEMPT', value: String(job.attemptNo) });
     // Keep the contest context already present in the deployed Lambda.
@@ -35,6 +39,7 @@ export function buildRunTaskInput(job, recordId, env) {
         networkConfiguration: { awsvpcConfiguration: {
             subnets: [env.SUBNET_ID], securityGroups: [env.SECURITY_GROUP], assignPublicIp: 'DISABLED',
         } },
+        // DB credentials now come only from the coordinator task's runtime secrets.
         overrides: { containerOverrides: [{ name: 'grader', environment }] },
     };
 }

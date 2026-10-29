@@ -115,9 +115,10 @@ def get_contest_submission(conn):
         cur.execute(
             """
             SELECT id, user_id FROM contest_submission
-            WHERE submission_id = %s     
+            WHERE submission_id = %s
+              AND contest_id = %s AND contest_problem_id = %s
             """,
-            (SUBMISSION_ID,)
+            (SUBMISSION_ID, CONTEST_ID, CONTEST_PROBLEM_ID)
         )
         row = cur.fetchone()
     return row
@@ -126,6 +127,7 @@ def get_contest_submission(conn):
 # [대회] contest_submission 결과 업데이트
 # ───────────────────────────────────────────
 def update_contest_submission_result(conn, contest_submission_id, is_correct):
+    # 호출자가 점수 갱신과 함께 커밋합니다.
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -135,7 +137,6 @@ def update_contest_submission_result(conn, contest_submission_id, is_correct):
             """,
             (is_correct, contest_submission_id)
         )
-    conn.commit()
 
 # ───────────────────────────────────────────
 # [대회] 첫 정답 여부 확인
@@ -157,6 +158,7 @@ def already_solved(conn, contest_id, contest_problem_id, user_id):
 # [대회] 점수 반영 → 갱신된 총점 반환
 # ───────────────────────────────────────────
 def add_contest_score(conn, contest_id, user_id, points):
+    # 호출자가 제출 결과 갱신과 함께 커밋합니다.
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -168,7 +170,6 @@ def add_contest_score(conn, contest_id, user_id, points):
             (points, contest_id, user_id)
         )
         new_score = cur.fetchone()[0]
-    conn.commit()
     return new_score
 
 # ───────────────────────────────────────────
@@ -183,29 +184,61 @@ def update_scoreboard(contest_id, user_id, new_total_score):
 # ───────────────────────────────────────────
 # [대회] 채점 완료 후 대회 전용 후처리
 # ───────────────────────────────────────────
-def handle_contest_result(conn, is_correct):
+def apply_contest_result(conn, is_correct):
+    # Caller owns the transaction; never commit or publish Redis here.
+    new_total_score = None
     row = get_contest_submission(conn)
     if row is None:
-        print('[WARN] contest_submission not found for solve_submission_id=' + SUBMISSION_ID, file=sys.stderr)
-        return
+        raise ValueError('Matching contest_submission not found for solve_submission_id=' + SUBMISSION_ID)
 
     contest_submission_id, user_id = row
+    with conn.cursor() as cur:
+        # 같은 참가자의 채점 워커를 직렬화한 뒤 첫 정답을 판단합니다.
+        # 이 잠금은 결과와 점수가 함께 커밋될 때까지 유지됩니다.
+        cur.execute(
+            """SELECT score FROM contest_participant
+               WHERE contest_id = %s AND user_id = %s FOR UPDATE""",
+            (CONTEST_ID, user_id)
+        )
+        if cur.fetchone() is None:
+            raise ValueError('Contest participant not found')
+
+        cur.execute(
+            "SELECT submission_status FROM contest_submission WHERE id = %s FOR UPDATE",
+            (contest_submission_id,)
+        )
+        submission = cur.fetchone()
+        if submission is None:
+            raise ValueError('Contest submission disappeared during grading')
+        # 중복 전달이나 오류 후처리로 확정된 결과를 덮어쓰지 않습니다.
+        if submission[0] == 'COMPLETED':
+            return
+
+    first_correct = is_correct and not already_solved(
+        conn, CONTEST_ID, CONTEST_PROBLEM_ID, user_id
+    )
     update_contest_submission_result(conn, contest_submission_id, is_correct)
+    if first_correct:
+        new_total_score = add_contest_score(conn, CONTEST_ID, user_id, CONTEST_POINTS)
 
-    if not is_correct:
+    if new_total_score is not None:
+        return (user_id, new_total_score)
+
+
+def publish_scoreboard(change):
+    if change is None:
         return
-
-    # 첫 정답일 때만 점수 반영 + Redis 갱신
-    if already_solved(conn, CONTEST_ID, CONTEST_PROBLEM_ID, user_id):
-        return
-
-    new_total_score = add_contest_score(conn, CONTEST_ID, user_id, CONTEST_POINTS)
-
+    user_id, new_total_score = change
     try:
         update_scoreboard(CONTEST_ID, user_id, new_total_score)
     except Exception as e:
-        # Redis 장애 시 DB는 이미 커밋됐으므로 무시 (스코어보드는 DB fallback으로 복구 가능)
         print(f'[WARN] Redis scoreboard update failed: {e}', file=sys.stderr)
+
+
+def handle_contest_result(conn, is_correct):
+    with conn:
+        change = apply_contest_result(conn, is_correct)
+    publish_scoreboard(change)
 
 # ───────────────────────────────────────────
 # S3 다운로드

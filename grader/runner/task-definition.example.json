@@ -1,0 +1,32 @@
+{
+  "family": "diveon-isolated-runner",
+  "requiresCompatibilities": ["FARGATE"],
+  "networkMode": "awsvpc",
+  "cpu": "1024",
+  "memory": "2048",
+  "runtimePlatform": {"cpuArchitecture": "X86_64", "operatingSystemFamily": "LINUX"},
+  "executionRoleArn": "REPLACE_WITH_REVIEWED_EXECUTION_ROLE_ARN",
+  "volumes": [{"name": "work"}],
+  "containerDefinitions": [{
+    "name": "runner",
+    "image": "REPLACE_WITH_REVIEWED_ECR_IMAGE_AT_SHA256_DIGEST",
+    "essential": true,
+    "user": "0",
+    "readonlyRootFilesystem": true,
+    "stopTimeout": 10,
+    "linuxParameters": {
+      "initProcessEnabled": true,
+      "capabilities": {"drop": ["NET_RAW", "NET_BIND_SERVICE", "MKNOD", "SETFCAP", "SETPCAP", "SYS_PTRACE"]}
+    },
+    "mountPoints": [{"sourceVolume": "work", "containerPath": "/work", "readOnly": false}],
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "REPLACE_WITH_REVIEWED_LOG_GROUP",
+        "awslogs-region": "ap-northeast-2",
+        "awslogs-stream-prefix": "runner",
+        "mode": "blocking"
+      }
+    }
+  }]
+}

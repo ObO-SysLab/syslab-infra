@@ -1,14 +1,13 @@
 import os
 import sys
-import subprocess
 import time
-import resource
-import boto3
 import psycopg2
 import redis as redis_module
+from runner_client import create_runner, create_storage_client, read_object
+from execution_protocol import MAX_SOURCE, MAX_INPUT, MAX_CASES, MAX_MEMORY_MB, MAX_TIME, integer, decode, MAX_OUTPUT
 
 # ───────────────────────────────────────────
-# 환경변수 읽기 (Lambda RunTask 시 주입)
+# 제출 문맥은 Lambda에서, DB/실행 설정은 조정기 태스크에서 주입
 # ───────────────────────────────────────────
 SUBMISSION_ID  = os.environ['SUBMISSION_ID']   # solve_submission.id (bigint, 문자열로 수신)
 CODE_S3_KEY    = os.environ['CODE_S3_KEY']     # e.g. submissions/123/Main.py
@@ -16,6 +15,7 @@ LANGUAGE       = os.environ['LANGUAGE']         # python | c | cpp
 PROBLEM_ID     = os.environ['PROBLEM_ID']
 TIME_LIMIT     = int(os.environ['TIME_LIMIT'])  # 초 단위
 TESTCASE_COUNT = int(os.environ['TESTCASE_COUNT'])
+MEMORY_LIMIT = int(os.environ['MEMORY_LIMIT'])
 GRADING_ATTEMPT = int(os.environ['GRADING_ATTEMPT']) if os.environ.get('GRADING_ATTEMPT') else None
 
 # 대회 컨텍스트 (대회 제출일 때만 세팅, 일반 제출이면 None)
@@ -38,8 +38,7 @@ REDIS_PORT = int(os.environ.get('REDIS_PORT', '6379'))
 # ───────────────────────────────────────────
 # 상수
 # ───────────────────────────────────────────
-WORK_DIR        = '/tmp'
-COMPILE_TIMEOUT = 10
+# Submitted code is never compiled or run in this image.
 
 # ───────────────────────────────────────────
 # DB 연결
@@ -306,64 +305,6 @@ def finalize_submission(conn, result_status, memory_usage, runtime, code_size):
 # ───────────────────────────────────────────
 # S3 다운로드
 # ───────────────────────────────────────────
-def download_from_s3(s3_client, s3_key, local_path):
-    s3_client.download_file(S3_BUCKET, s3_key, local_path)
-
-# ───────────────────────────────────────────
-# 언어별 컴파일
-# 반환값: (success: bool, error_message: str)
-# ───────────────────────────────────────────
-def compile_code(language, code_path):
-    try:
-        if language == 'c':
-            result = subprocess.run(
-                ['gcc', code_path, '-o', f'{WORK_DIR}/solution', '-lm'],
-                capture_output=True, text=True, timeout=COMPILE_TIMEOUT
-            )
-        elif language == 'cpp':
-            result = subprocess.run(
-                ['g++', '-std=c++17', code_path, '-o', f'{WORK_DIR}/solution', '-lm'],
-                capture_output=True, text=True, timeout=COMPILE_TIMEOUT
-            )
-        else:
-            return True, ''
-        if result.returncode != 0:
-            return False, result.stderr[:500]
-        return True, ''
-
-    except subprocess.TimeoutExpired:
-        return False, 'Compile timeout'
-
-# ───────────────────────────────────────────
-# 단일 테스트케이스 실행
-# 반환값: (verdict, runtime_ms, memory_kb, stdout)
-# ───────────────────────────────────────────
-def run_testcase(language, code_path, input_data, time_limit):
-    cmd = ['python3', code_path] if language == 'python' else [f'{WORK_DIR}/solution']
-
-    start = time.time()
-    try:
-        proc = subprocess.run(
-            cmd,
-            input=input_data,
-            capture_output=True,
-            text=True,
-            timeout=time_limit
-        )
-        runtime_ms = int((time.time() - start) * 1000)
-        memory_kb  = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
-
-        if proc.returncode != 0:
-            return 'RUNTIME_ERROR', runtime_ms, memory_kb, ''
-
-        return 'OK', runtime_ms, memory_kb, proc.stdout
-
-    except subprocess.TimeoutExpired:
-        return 'TIME_LIMIT_EXCEEDED', time_limit * 1000, 0, ''
-
-# ───────────────────────────────────────────
-# 정답 비교 (공백/줄바꿈 정규화)
-# ───────────────────────────────────────────
 def compare_output(actual: str, expected: str) -> bool:
     actual_lines   = [line.rstrip() for line in actual.strip().splitlines()]
     expected_lines = [line.rstrip() for line in expected.strip().splitlines()]
@@ -373,7 +314,7 @@ def compare_output(actual: str, expected: str) -> bool:
 # 메인 채점 로직
 # ───────────────────────────────────────────
 def main():
-    s3   = boto3.client('s3', region_name='ap-northeast-2')
+    s3   = create_storage_client()
     conn = get_db_conn()
 
     try:
@@ -382,51 +323,39 @@ def main():
             print(f'[SKIP] submissionId={SUBMISSION_ID} terminal or stale attempt')
             return 0
 
-        # ① 코드 파일 S3에서 다운로드
-        ext_map   = {'python': 'py', 'c': 'c', 'cpp': 'cpp'}
-        code_path = f'{WORK_DIR}/code.{ext_map[LANGUAGE]}'
-        download_from_s3(s3, CODE_S3_KEY, code_path)
-        code_size = os.path.getsize(code_path)
-
-        # ② 컴파일
-        compile_ok, compile_err = compile_code(LANGUAGE, code_path)
-        if not compile_ok:
-            finalize_submission(conn, 'ERROR', 0, 0, code_size)
-            print(f'[COMPILE_ERROR] {compile_err}')
-            return
-
-        # ③ 테스트케이스 순회
-        final_verdict  = 'CORRECT'
-        max_runtime_ms = 0
-        max_memory_kb  = 0
-
+        integer(TESTCASE_COUNT, 1, MAX_CASES)
+        integer(TIME_LIMIT, 1, MAX_TIME)
+        integer(MEMORY_LIMIT, 16, MAX_MEMORY_MB)
+        source = read_object(s3, S3_BUCKET, CODE_S3_KEY, MAX_SOURCE)
+        code_size = len(source)
+        inputs, expected_outputs = [], []
         for i in range(1, TESTCASE_COUNT + 1):
-            input_path  = f'{WORK_DIR}/input_{i}.txt'
-            output_path = f'{WORK_DIR}/output_{i}.txt'
+            inputs.append(read_object(s3, S3_BUCKET, f'testcases/prob-{PROBLEM_ID}/input_{i}.txt', MAX_INPUT))
+            expected_outputs.append(read_object(s3, S3_BUCKET, f'testcases/prob-{PROBLEM_ID}/output_{i}.txt', MAX_OUTPUT).decode('utf-8'))
 
-            download_from_s3(s3, f'testcases/prob-{PROBLEM_ID}/input_{i}.txt',  input_path)
-            download_from_s3(s3, f'testcases/prob-{PROBLEM_ID}/output_{i}.txt', output_path)
-
-            with open(input_path,  'r') as f:
-                input_data = f.read()
-            with open(output_path, 'r') as f:
-                expected = f.read()
-
-            verdict, runtime_ms, memory_kb, actual_output = run_testcase(
-                LANGUAGE, code_path, input_data, TIME_LIMIT
-            )
-            max_runtime_ms = max(max_runtime_ms, runtime_ms)
-            max_memory_kb  = max(max_memory_kb, memory_kb)
-
-            print(f'  [TC {i}/{TESTCASE_COUNT}] {verdict} ({runtime_ms}ms / {memory_kb}KB)')
-
-            if verdict == 'TIME_LIMIT_EXCEEDED':
-                final_verdict = 'WRONG'
+        # Only code and stdin cross into the separate, credential-free task.
+        execution = create_runner(s3).execute(LANGUAGE, source, inputs, TIME_LIMIT, MEMORY_LIMIT)
+        if execution['compileError']:
+            finalize_submission(conn, 'ERROR', 0, 0, code_size)
+            return 0
+        final_verdict = 'CORRECT'
+        max_runtime_ms = 0
+        max_memory_kb = 0
+        for item, expected in zip(execution['cases'], expected_outputs):
+            max_runtime_ms = max(max_runtime_ms, item['runtimeMs'])
+            max_memory_kb = max(max_memory_kb, item['memoryKb'])
+            if item['verdict'] == 'TIME_LIMIT_EXCEEDED':
+                final_verdict = 'WRONG'  # Preserve the existing persisted verdict contract.
                 break
-            elif verdict == 'RUNTIME_ERROR':
+            if item['verdict'] != 'OK':
                 final_verdict = 'ERROR'
                 break
-            elif not compare_output(actual_output, expected):
+            try:
+                actual = decode(item['stdout'], MAX_OUTPUT).decode('utf-8')
+            except UnicodeError:
+                final_verdict = 'ERROR'
+                break
+            if not compare_output(actual, expected):
                 final_verdict = 'WRONG'
                 break
 
@@ -444,7 +373,7 @@ def main():
             report_attempt_failure(conn)
         except Exception:
             conn.rollback()  # Unreachable DB / process death is recovered by the durable deadline.
-        print(f'[ERROR] {e}', file=sys.stderr)
+        print('[ERROR] Grading infrastructure failure', file=sys.stderr)
         return 1
 
     finally:

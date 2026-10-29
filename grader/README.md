@@ -121,7 +121,9 @@ A known task ARN is stopped on coordinator failure. Lost RunTask responses use u
 startedBy lookup, but ECS eventual consistency makes one lookup insufficient to guarantee
 discovery. The worker watchdog bounds execution once started. Coordinator death before
 worker startup, prolonged provisioning and failed StopTask still need an external stale-task
-monitor, which is not implemented. Crashes/deletion failures also need S3 lifecycle cleanup.
+monitor. It is now implemented locally in stale_runner_monitor.py with a default dry-run,
+exact cluster/revision/group ownership and repeated scans; see [monitor contract](runner/MONITOR.md).
+It has NOT been deployed or verified on AWS. Crashes/deletion failures also need S3 lifecycle cleanup.
 AUDIT-01 stays P0 open, with AUDIT-09 linked and unresolved, until these safeguards and AWS validation are complete.
 
 ## Local evidence

@@ -7,7 +7,7 @@ import re
 import zipfile
 
 REQUIRED = (
-    "grader/lambda_trigger.mjs", "grader/launch.mjs", "grader/grader.py",
+    "grader/stale_runner_monitor.py", "grader/lambda_trigger.mjs", "grader/launch.mjs", "grader/grader.py",
     "grader/runner_client.py", "grader/execution_protocol.py", "grader/Dockerfile",
     "grader/runner/Dockerfile", "grader/runner/launcher.c", "grader/runner/sandbox.py",
     "grader/runner/worker.py", "grader/runner/task-definition.example.json",
@@ -49,6 +49,7 @@ def package(root, destination, revision):
     destination.mkdir(parents=True, exist_ok=False)
     archive(destination / "infrastructure.zip", files)
     archive(destination / "grading-lambda.zip", {name: files["grader/" + name] for name in ("lambda_trigger.mjs", "launch.mjs")})
+    archive(destination / "runner-monitor-lambda.zip", {"stale_runner_monitor.py": files["grader/stale_runner_monitor.py"]})
     manifest = {
         "sourceRevision": revision,
         "files": {name: hashlib.sha256(data).hexdigest() for name, data in sorted(files.items())},

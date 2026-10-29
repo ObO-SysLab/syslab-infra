@@ -2,6 +2,21 @@
 
 > SQS 메시지를 트리거로 Fargate에서 실행되는 자동 채점 컨테이너
 
+
+## Durable recovery (local implementation, disabled by default)
+
+The coordinated backend rollout adds a `coding_grade_job` outbox and deadline watcher.
+Infrastructure failures are retried up to three logical attempts; verdicts such as WRONG/ERROR are final.
+`GRADING_ATTEMPT` fences expired or superseded workers before committing results.
+The backend default `grading.recovery.enabled=false` must stay off until the manual DB migration,
+new worker image and Lambda are deployed together and legacy work has drained.
+See `syslab-backend/ops/2026-10-29-coding-grade-recovery.sql` in the sibling checkout.
+
+Lambda packaging: copy `lambda_trigger.mjs` as `index.mjs` and include `launch.mjs` at the ZIP root.
+Use `index.handler`, preserve deployment environment settings, and pin `TASK_DEFINITION` to a revision.
+Run local launch tests with `node --test tests/launch.test.mjs` from this directory.
+The watcher requires a running API server; it does not forcibly stop expired ECS tasks.
+
 ---
 
 ## 아키텍처

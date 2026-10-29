@@ -609,6 +609,33 @@ class ContestResultTest(unittest.TestCase):
         return path.read_text(encoding="utf-8-sig")
 
 
+    def test_audit07_real_migration_is_idempotent_and_constrains_ready_digest(self):
+        migration = self.backend_file("ops/2026-10-30-practice-build.sql")
+        with self.isolated_schema() as cur:
+            cur.execute("CREATE TABLE problem_practice (prob_id bigint PRIMARY KEY, image_status text, ecr_image_uri text)")
+            cur.execute("INSERT INTO problem_practice VALUES (1,'PENDING',NULL), (2,'READY','legacy:tag')")
+            cur.execute(migration)
+            cur.execute(migration)
+            cur.execute("SELECT image_status, build_failure_reason FROM problem_practice WHERE prob_id=1")
+            self.assertEqual(cur.fetchone(), ("FAILED", "LEGACY_UNTRACKED"))
+            cur.execute("SELECT image_status FROM problem_practice WHERE prob_id=2")
+            self.assertEqual(cur.fetchone(), ("READY",))
+            request = str(uuid.uuid4())
+            with self.assertRaises(Exception) as caught:
+                cur.execute("""INSERT INTO problem_practice
+                    (prob_id,image_status,ecr_image_uri,build_request_id,code_build_id,build_requested_at,build_deadline_at)
+                    VALUES (3,'READY','mutable:latest',%s,'build',now(),now()+interval '10 minutes')""", (request,))
+            self.assertEqual(caught.exception.pgcode, "23514")
+            cur.execute("""INSERT INTO problem_practice
+                (prob_id,image_status,ecr_image_uri,build_request_id,code_build_id,build_requested_at,build_deadline_at)
+                VALUES (3,'READY',%s,%s,'build',now(),now()+interval '10 minutes')""",
+                ("registry/repo@sha256:" + "a" * 64, request))
+            with self.assertRaises(Exception) as caught:
+                cur.execute("""INSERT INTO problem_practice
+                    (prob_id,image_status,build_request_id,build_requested_at,build_deadline_at)
+                    VALUES (4,'PENDING',%s,now(),now()+interval '10 minutes')""", (request,))
+            self.assertEqual(caught.exception.pgcode, "23505")
+
     def test_audit10_real_ledger_migration_seeds_both_histories_without_rewriting_counts(self):
         migration = self.backend_file("ops/2026-10-30-score-consistency.sql")
         with self.isolated_schema() as cur:

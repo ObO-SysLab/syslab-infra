@@ -80,6 +80,22 @@ class ContestResultTest(unittest.TestCase):
                         contest_id bigint, contest_problem_id bigint, user_id bigint,
                         is_correct boolean, submission_status text NOT NULL
                     );
+                    CREATE TABLE problem_summary (
+                        id bigint PRIMARY KEY, submitted_count integer NOT NULL,
+                        solved_count integer NOT NULL
+                    );
+                    CREATE TABLE solve_submission (
+                        id bigint PRIMARY KEY, prob_id bigint REFERENCES problem_summary,
+                        submission_state text NOT NULL
+                    );
+                    CREATE TABLE solve_result (
+                        id bigserial PRIMARY KEY, submission_id bigint REFERENCES solve_submission,
+                        result_status text NOT NULL, created_at timestamp NOT NULL
+                    );
+                    CREATE TABLE solve_result_coding (
+                        result_id bigint PRIMARY KEY REFERENCES solve_result,
+                        memory_usage integer, runtime integer, code_size integer, score integer
+                    );
                 ''')
 
     @classmethod
@@ -109,7 +125,10 @@ class ContestResultTest(unittest.TestCase):
         self.addCleanup(self.conn.close)
         with self.conn, self.conn.cursor() as cur:
             cur.execute('TRUNCATE contest_submission, contest_participant')
+            cur.execute('TRUNCATE solve_result_coding, solve_result, solve_submission, problem_summary')
             cur.execute('ALTER TABLE contest_participant DROP CONSTRAINT IF EXISTS injected_failure')
+            cur.execute('ALTER TABLE problem_summary DROP CONSTRAINT IF EXISTS injected_failure')
+            cur.execute('ALTER TABLE solve_result_coding DROP CONSTRAINT IF EXISTS injected_failure')
             cur.execute('INSERT INTO contest_participant (contest_id, user_id) VALUES (1, 7)')
         self.add_submission(101)
         self.scope = load_handler(101)
@@ -246,6 +265,183 @@ class ContestResultTest(unittest.TestCase):
         self.assertEqual(self.result(), (True, 'COMPLETED'))
         self.assertEqual(self.result(102), (True, 'COMPLETED'))
 
+
+    def prepare_full_submission(self, contest=False):
+        self.scope.update(PROBLEM_ID='2', IS_CONTEST=contest)
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('INSERT INTO problem_summary VALUES (2, 1, 0)')
+            cur.execute("INSERT INTO solve_submission VALUES (101, 2, 'PENDING')")
+            if not contest:
+                cur.execute('DELETE FROM contest_submission')
+
+    def full_state(self, conn=None):
+        with (conn or self.conn).cursor() as cur:
+            cur.execute('''SELECT s.submission_state, p.submitted_count, p.solved_count,
+                        (SELECT count(*) FROM solve_result),
+                        (SELECT count(*) FROM solve_result_coding)
+                        FROM solve_submission s JOIN problem_summary p ON p.id=s.prob_id
+                        WHERE s.id=101''')
+            return cur.fetchone()
+
+    def finalize(self, verdict='CORRECT', scope=None, conn=None):
+        return (scope or self.scope)['finalize_submission'](
+            conn or self.conn, verdict, 1024, 10, 20)
+
+    def test_finalization_counts_result_once_without_recounting_submission(self):
+        self.prepare_full_submission()
+        self.assertTrue(self.finalize())
+        self.assertFalse(self.finalize())
+        self.assertEqual(self.full_state(), ('COMPLETED', 1, 1, 1, 1))
+
+    def test_completed_submission_is_not_reopened(self):
+        self.prepare_full_submission()
+        self.finalize()
+        self.assertFalse(self.scope['begin_grading'](self.conn))
+        self.assertFalse(self.finalize('ERROR'))
+        self.assertEqual(self.full_state(), ('COMPLETED', 1, 1, 1, 1))
+
+    def test_wrong_result_completes_without_increasing_solved_count(self):
+        self.prepare_full_submission()
+        self.finalize('WRONG')
+        self.assertEqual(self.full_state(), ('COMPLETED', 1, 0, 1, 1))
+
+    def test_observer_cannot_see_partial_completion(self):
+        self.prepare_full_submission(contest=True)
+        save_stats = self.scope['update_solved_count']
+        with closing(self.connect()) as observer:
+            def check_before_commit(*args):
+                save_stats(*args)
+                self.assertEqual(self.full_state(observer), ('PENDING', 1, 0, 0, 0))
+                with observer.cursor() as cur:
+                    cur.execute('SELECT is_correct, submission_status FROM contest_submission WHERE id=101')
+                    self.assertEqual(cur.fetchone(), (None, 'PENDING'))
+                    cur.execute('SELECT score FROM contest_participant WHERE user_id=7')
+                    self.assertEqual(cur.fetchone()[0], 0)
+            self.scope['update_solved_count'] = check_before_commit
+            self.finalize()
+            self.assertEqual(self.full_state(observer), ('COMPLETED', 1, 1, 1, 1))
+        self.assertEqual(self.score(), 100)
+
+    def test_detail_write_failure_rolls_back_all_and_can_retry(self):
+        self.prepare_full_submission()
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE solve_result_coding ADD CONSTRAINT injected_failure CHECK (runtime < 5)')
+        with self.assertRaises(psycopg2.errors.CheckViolation):
+            self.finalize()
+        self.assertEqual(self.full_state(), ('PENDING', 1, 0, 0, 0))
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE solve_result_coding DROP CONSTRAINT injected_failure')
+        self.finalize()
+        self.assertEqual(self.full_state(), ('COMPLETED', 1, 1, 1, 1))
+
+    def test_statistics_failure_rolls_back_contest_score_and_result(self):
+        self.prepare_full_submission(contest=True)
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE problem_summary ADD CONSTRAINT injected_failure CHECK (solved_count = 0)')
+        with self.assertRaises(psycopg2.errors.CheckViolation):
+            self.finalize()
+        self.assertEqual(self.full_state(), ('PENDING', 1, 0, 0, 0))
+        self.assertEqual(self.score(), 0)
+        self.assertEqual(self.result(), (None, 'PENDING'))
+        self.scope['update_scoreboard'].assert_not_called()
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE problem_summary DROP CONSTRAINT injected_failure')
+        self.finalize()
+        self.assertEqual(self.score(), 100)
+
+    def test_concurrent_duplicate_workers_finalize_once(self):
+        self.prepare_full_submission(contest=True)
+        barrier = threading.Barrier(2)
+        def worker(_):
+            with closing(self.connect()) as conn:
+                scope = load_handler(101)
+                scope.update(PROBLEM_ID='2', IS_CONTEST=True)
+                with conn, conn.cursor() as cur:
+                    cur.execute("SET statement_timeout = '5s'")
+                barrier.wait(timeout=5)
+                return self.finalize(scope=scope, conn=conn)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            self.assertEqual(sorted(pool.map(worker, [1, 2])), [False, True])
+        self.assertEqual(self.full_state(), ('COMPLETED', 1, 1, 1, 1))
+        self.assertEqual(self.score(), 100)
+
+    def test_legacy_partial_result_is_not_duplicated(self):
+        self.prepare_full_submission()
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute("INSERT INTO solve_result(submission_id,result_status,created_at) VALUES(101,'CORRECT',now())")
+        with self.assertRaises(ValueError):
+            self.finalize()
+        self.assertEqual(self.full_state(), ('PENDING', 1, 0, 1, 0))
+
+    def setup_main(self):
+        self.prepare_full_submission()
+        work = self.directory / self._testMethodName
+        work.mkdir()
+        self.scope.update(
+            boto3=Mock(), get_db_conn=self.connect, LANGUAGE='python',
+            CODE_S3_KEY='test/Main.py', TIME_LIMIT=1, TESTCASE_COUNT=1, WORK_DIR=str(work),
+            compile_code=Mock(return_value=(True, '')),
+            run_testcase=Mock(return_value=('OK', 1, 1024, '1\n')),
+            download_from_s3=lambda client, key, path: Path(path).write_text('1\n'),
+        )
+
+    def test_main_compile_failure_saves_one_error_result(self):
+        self.setup_main()
+        self.scope['compile_code'].return_value = (False, 'bad syntax')
+        self.scope['main']()
+        self.scope['main']()
+        self.assertEqual(self.full_state(), ('COMPLETED', 1, 0, 1, 1))
+
+    def test_main_storage_failure_does_not_create_fake_error_and_can_retry(self):
+        self.setup_main()
+        download = self.scope['download_from_s3']
+        self.scope['download_from_s3'] = Mock(side_effect=RuntimeError('S3 unavailable in test'))
+        self.assertEqual(self.scope['main'](), 1)
+        self.assertEqual(self.full_state(), ('JUDGING', 1, 0, 0, 0))
+        self.scope['download_from_s3'] = download
+        self.scope['main']()
+        self.assertEqual(self.full_state(), ('COMPLETED', 1, 1, 1, 1))
+
+    def test_main_db_failure_does_not_replace_verdict_with_error(self):
+        self.setup_main()
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE problem_summary ADD CONSTRAINT injected_failure CHECK (solved_count = 0)')
+        self.assertEqual(self.scope['main'](), 1)
+        self.assertEqual(self.full_state(), ('JUDGING', 1, 0, 0, 0))
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE problem_summary DROP CONSTRAINT injected_failure')
+        self.scope['main']()
+        self.assertEqual(self.full_state(), ('COMPLETED', 1, 1, 1, 1))
+
+    def test_backend_counter_sql_preserves_concurrent_increments(self):
+        self.prepare_full_submission()
+        repository = Path(__file__).resolve().parents[3] / 'syslab-backend/src/main/java/net/diveon/backend/domain/problem/repository/ProblemRepository.java'
+        if not repository.is_file():
+            self.skipTest('Cross-repository SQL check requires the sibling syslab-backend checkout')
+        source = repository.read_text(encoding='utf-8-sig')
+        queries = re.findall(r'@Query\(value = "(UPDATE problem_summary [^"]+)"', source)
+        self.assertEqual(len(queries), 2)
+        barrier = threading.Barrier(3)
+        def increment(query):
+            with closing(self.connect()) as conn:
+                barrier.wait(timeout=5)
+                for _ in range(10):
+                    with conn, conn.cursor() as cur:
+                        cur.execute(query.replace(':problemId', '%s'), (2,))
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            list(pool.map(increment, [queries[0], queries[0], queries[1]]))
+        self.assertEqual(self.full_state(), ('PENDING', 21, 10, 0, 0))
+
+    def test_redis_notification_happens_after_full_commit(self):
+        self.prepare_full_submission(contest=True)
+        with closing(self.connect()) as observer:
+            observed = []
+            def check_commit(*args):
+                observed.append(self.full_state(observer))
+            self.scope['update_scoreboard'] = Mock(side_effect=check_commit)
+            self.finalize()
+            self.scope['update_scoreboard'].assert_called_once()
+            self.assertEqual(observed, [('COMPLETED', 1, 1, 1, 1)])
 
 
 if __name__ == '__main__':

@@ -5,7 +5,7 @@ Never reads production credentials or connects to an existing database.
 Cluster files and logs remain in the OS temp directory for diagnosis.
 """
 import ast
-from contextlib import closing
+from contextlib import closing, contextmanager
 from concurrent.futures import ThreadPoolExecutor
 import os
 import re
@@ -18,6 +18,7 @@ import tempfile
 import threading
 import time
 import unittest
+import uuid
 from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -584,6 +585,69 @@ class ContestResultTest(unittest.TestCase):
             self.finalize()
             self.scope['update_scoreboard'].assert_called_once()
             self.assertEqual(observed, [('COMPLETED', 1, 1, 1, 1)])
+
+
+    @contextmanager
+    def isolated_schema(self):
+        schema = "audit_" + uuid.uuid4().hex
+        with closing(self.connect()) as conn:
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                cur.execute("CREATE SCHEMA " + schema)
+                cur.execute("SET search_path TO " + schema)
+                try:
+                    yield cur
+                finally:
+                    conn.rollback()
+                    cur.execute("ROLLBACK")
+                    cur.execute("SET search_path TO public")
+                    cur.execute("DROP SCHEMA " + schema + " CASCADE")
+
+    def backend_file(self, relative):
+        path = Path(__file__).resolve().parents[3] / "syslab-backend" / relative
+        self.assertTrue(path.is_file(), "Matching sibling backend checkout is required")
+        return path.read_text(encoding="utf-8-sig")
+
+
+    def test_audit10_real_ledger_migration_seeds_both_histories_without_rewriting_counts(self):
+        migration = self.backend_file("ops/2026-10-30-score-consistency.sql")
+        with self.isolated_schema() as cur:
+            cur.execute("""
+                CREATE TABLE problem_summary(id bigint PRIMARY KEY, solved_count integer);
+                CREATE TABLE domain_user(id bigint PRIMARY KEY);
+                CREATE TABLE solve_submission(id bigint PRIMARY KEY, prob_id bigint, user_id bigint);
+                CREATE TABLE solve_result(submission_id bigint, result_status text);
+                CREATE TABLE contest_problem(id bigint PRIMARY KEY, problem_id bigint);
+                CREATE TABLE contest_submission(contest_problem_id bigint, user_id bigint, is_correct boolean);
+                INSERT INTO problem_summary VALUES(1,99);
+                INSERT INTO domain_user VALUES(7),(8);
+                INSERT INTO solve_submission VALUES(1,1,7),(2,1,7);
+                INSERT INTO solve_result VALUES(1,'CORRECT'),(2,'CORRECT');
+                INSERT INTO contest_problem VALUES(10,1);
+                INSERT INTO contest_submission VALUES(10,7,true),(10,8,true);
+            """)
+            cur.execute(migration)
+            cur.execute(migration)
+            cur.execute("SELECT user_id FROM problem_solver ORDER BY user_id")
+            self.assertEqual(cur.fetchall(), [(7,), (8,)])
+            cur.execute("SELECT solved_count FROM problem_summary")
+            self.assertEqual(cur.fetchone(), (99,))
+
+    def test_audit10_real_rank_matches_score_time_null_and_banned_policy(self):
+        source = self.backend_file("src/main/java/net/diveon/backend/domain/contest/service/ContestRankQuery.java")
+        query = source.split('"""')[1].replace("?", "%s")
+        with self.isolated_schema() as cur:
+            cur.execute("""CREATE TABLE contest_participant
+                (contest_id bigint, user_id bigint, score integer, last_solved_at timestamp, is_banned boolean);
+                INSERT INTO contest_participant VALUES
+                (1,1,100,'2026-10-30 01:00',false),(1,2,100,'2026-10-30 01:00',false),
+                (1,3,100,NULL,false),(1,4,200,'2026-10-30 02:00',false),(1,5,999,NULL,true);
+            """)
+            for user, rank in ((4,1),(1,2),(2,3),(3,4)):
+                cur.execute(query, (1,user))
+                self.assertEqual(cur.fetchone(), (rank,))
+            cur.execute(query, (1,5))
+            self.assertIsNone(cur.fetchone())
 
 
 if __name__ == '__main__':

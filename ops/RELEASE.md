@@ -12,7 +12,7 @@
 ## 아티팩트와 실행안 — 별도 승인
 
 1. 세 저장소의 정확한 전체 커밋과 테스트 결과를 릴리스 기록에 묶는다. infrastructure.zip, grading-lambda.zip, manifest.json 및 backend JAR/ops SQL, frontend out을 수집한다.
-2. package_release.py는 Lambda 진입점과 launch.mjs 두 파일을 ZIP 루트에 넣고, runner/coordinator/VM/터미널/빌드 소스를 빠짐없이 checksum으로 기록한다. 실패한/불완전한 묶음은 배포하지 않는다.
+2. package_release.py는 lambda_trigger.mjs를 index.mjs로 이름을 바꾸고 launch.mjs와 함께 ZIP 루트에 넣어 기존 index.handler를 보존한다. 별도 감시는 stale_runner_monitor.handler다. manifest에 handler와 runner/coordinator/VM/터미널/빌드 소스 checksum을 기록한다. 실패한/불완전한 묶음은 배포하지 않는다.
 3. 승인 후 해당 소스로 coordinator/runner/backend 이미지를 빌드·등록하고 ECR 실제 digest를 기록한다. 로컬 image ID는 registry digest가 아니며 manifest placeholder로 실행하지 않는다. latest 사용 금지.
 4. 운영 DB 현재 스키마와 ops SQL을 대조하고 백업 후 별도 승인된 migration만 적용한다. 백엔드 prod는 ddl-auto=validate. 모든 플래그는 현재 기본 비활성 상태를 유지한다.
 5. 백엔드 비밀은 읽기 전용 외부 파일 /run/diveon/application-secret.yml로 제공하며 SPRING_CONFIG_ADDITIONAL_LOCATION=file:/run/diveon/ 설정을 사용한다. 비밀을 JAR/이미지/CI 아티팩트에 넣지 않는다.

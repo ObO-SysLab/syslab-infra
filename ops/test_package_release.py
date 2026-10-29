@@ -20,7 +20,9 @@ class ReleasePackageTest(unittest.TestCase):
         destination = Path(self.temp.name) / "release"
         manifest = package(self.root, destination, "a" * 40)
         with zipfile.ZipFile(destination / "grading-lambda.zip") as archive:
-            self.assertEqual(set(archive.namelist()), {"lambda_trigger.mjs", "launch.mjs"})
+            self.assertEqual(set(archive.namelist()), {"index.mjs", "launch.mjs"})
+            self.assertEqual(archive.read("index.mjs"), (self.root / "grader/lambda_trigger.mjs").read_bytes())
+        self.assertEqual(manifest["lambdaHandlers"]["grading-lambda.zip"], "index.handler")
         self.assertFalse(manifest["deploymentApproved"])
         for name, digest in manifest["archives"].items():
             self.assertEqual(digest, hashlib.sha256((destination / name).read_bytes()).hexdigest())

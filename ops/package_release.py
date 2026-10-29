@@ -48,13 +48,15 @@ def package(root, destination, revision):
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=False)
     archive(destination / "infrastructure.zip", files)
-    archive(destination / "grading-lambda.zip", {name: files["grader/" + name] for name in ("lambda_trigger.mjs", "launch.mjs")})
+    archive(destination / "grading-lambda.zip", {
+        "index.mjs": files["grader/lambda_trigger.mjs"], "launch.mjs": files["grader/launch.mjs"]})
     archive(destination / "runner-monitor-lambda.zip", {"stale_runner_monitor.py": files["grader/stale_runner_monitor.py"]})
     manifest = {
         "sourceRevision": revision,
         "files": {name: hashlib.sha256(data).hexdigest() for name, data in sorted(files.items())},
         "archives": {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted(destination.glob("*.zip"))},
         "deploymentApproved": False,
+        "lambdaHandlers": {"grading-lambda.zip": "index.handler", "runner-monitor-lambda.zip": "stale_runner_monitor.handler"},
         "requiredImages": ["coordinator@sha256:<reviewed>", "runner@sha256:<reviewed>"],
         "backendSchema": "Use matching backend release ops SQL; never infer deployment readiness from this archive.",
     }

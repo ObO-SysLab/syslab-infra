@@ -20,3 +20,9 @@
 /grader/tests/test_coordinator.py text eol=lf
 /grader/tests/test_obo_assessment.py text eol=lf
 /grader/tests/test_obo_checker.py text eol=lf
+
+# D35: preserve verified integration bytes, including mixed line endings.
+/grader/obo_runtime/freeDiagram.mjs -text
+/grader/runner/test_diagram_linux.py -text
+/grader/tests/test_diagram_output.py -text
+/.gitattributes -text

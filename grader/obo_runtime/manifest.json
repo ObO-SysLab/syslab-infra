@@ -9,6 +9,7 @@
     "flows.mjs": "ed3ba696248498b9b665a9a37b277f44d9c95f7fa943271a6b2c9f78619d5763",
     "synchronization.mjs": "77483e89cd4b7b9636e88df7017616af92110c17657b73fff6260c893dd858f2",
     "document.mjs": "bf8d617fe4ba18584a4455476fecd0becc0cbd6bc0b5c7da87869c71a1c65675",
-    "checker.mjs": "008a377b43facc26d7e7de237dbbe1cd13cbd58887fd88f2ea390c9eba9b7a68"
+    "freeDiagram.mjs": "ffa1eb94e9dd944a1e07c8e84f1e4c2cb19e20f2c07be1d000c0ae7f04372e8f",
+    "checker.mjs": "7b5c7148fbdcf3b957fa1859f3c38da99d75dfa58a6fe6a6c18cb6dbd2d65ec5"
   }
 }

@@ -87,3 +87,15 @@ def public_record(snapshot, case_index, verdict):
     return dict(caseIndex=case_index + 1, scenarioId=instance['scenarioId'], input=model_input,
                 reference=reference, reported=reported, correct=verdict['correct'],
                 traceValid=verdict['traceValid'], message=verdict.get('message', ''))
+
+
+def public_diagram_record(snapshot, case_index, stdout):
+    """Public execution output for replay only; never changes text-v1 grading."""
+    if not snapshot or (snapshot.get('obo') or {}).get('mode') != 'coding_diff':
+        return None
+    case = snapshot['testcases'][case_index]
+    if case.get('isSample') is not True:
+        return None
+    if len(stdout.encode('utf-8')) > 1048576:
+        return {'caseIndex': case_index + 1, 'kind': 'diagram', 'omitted': '출력 재생 기록이 1MiB를 초과했습니다.'}
+    return {'caseIndex': case_index + 1, 'kind': 'diagram', 'stdout': stdout}

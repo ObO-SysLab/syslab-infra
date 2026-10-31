@@ -1,11 +1,15 @@
 // Trusted process entry point. Never imports or evaluates submitted source code.
 import {grade,run,parseBoundedJson,checkShape,registry} from './index.mjs';
 import {validateDocument} from './document.mjs';
+import {validateFreeDiagram} from './freeDiagram.mjs';
 let size=0;const chunks=[];
 try {
   for await(const chunk of process.stdin){size+=chunk.length;if(size>8*1048576)throw Error('요청 크기 초과');chunks.push(chunk);}
   const request=parseBoundedJson(Buffer.concat(chunks).toString('utf8'),{bytes:8*1048576,depth:40});
-  if(request.operation==='validateDocument') {
+  if(request.operation==='validateFreeDiagram') {
+    validateFreeDiagram(request.document);
+    process.stdout.write(JSON.stringify({ok:true}));
+  }else if(request.operation==='validateDocument') {
     checkShape({type:'object',required:['operation','document'],properties:{operation:{const:'validateDocument'},document:{type:'object'}},additionalProperties:false},request);
     validateDocument(request.document);
     process.stdout.write(JSON.stringify({ok:true}));

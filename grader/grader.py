@@ -6,7 +6,7 @@ import psycopg2
 import redis as redis_module
 from runner_client import create_runner, create_storage_client, read_object
 from execution_protocol import MAX_SOURCE, MAX_INPUT, MAX_CASES, MAX_MEMORY_MB, MAX_TIME, integer, decode, MAX_OUTPUT
-from obo_assessment import load_revision, revision_cases, semantic_verdict, public_record
+from obo_assessment import load_revision, revision_cases, semantic_verdict, public_record, public_diagram_record
 
 # ───────────────────────────────────────────
 # 제출 문맥은 Lambda에서, DB/실행 설정은 조정기 태스크에서 주입
@@ -386,12 +386,18 @@ def main():
                         public_records.append({'caseIndex': case_index + 1, 'omitted': '표시 기록의 전체 용량 한도를 초과했습니다.'})
             else:
                 correct = compare_output(actual, expected)
+                record = public_diagram_record(snapshot, case_index, actual)
+                if record is not None:
+                    size = len(json.dumps(record, ensure_ascii=False).encode('utf-8'))
+                    if public_bytes + size <= 16 * 1048576:
+                        public_records.append(record)
+                        public_bytes += size
             if not correct:
                 final_verdict = 'WRONG'
                 break
 
         # ④ 최종 결과 저장 (solve_submission + solve_result 는 항상)
-        if profile == 'obo-v1':
+        if profile == 'obo-v1' or snapshot and (snapshot.get('obo') or {}).get('mode') == 'coding_diff':
             finalize_submission(conn, final_verdict, max_memory_kb, max_runtime_ms, code_size, public_records)
         else:
             finalize_submission(conn, final_verdict, max_memory_kb, max_runtime_ms, code_size)

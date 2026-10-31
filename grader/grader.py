@@ -1,10 +1,12 @@
 import os
 import sys
 import time
+import json
 import psycopg2
 import redis as redis_module
 from runner_client import create_runner, create_storage_client, read_object
 from execution_protocol import MAX_SOURCE, MAX_INPUT, MAX_CASES, MAX_MEMORY_MB, MAX_TIME, integer, decode, MAX_OUTPUT
+from obo_assessment import load_revision, revision_cases, semantic_verdict, public_record
 
 # ───────────────────────────────────────────
 # 제출 문맥은 Lambda에서, DB/실행 설정은 조정기 태스크에서 주입
@@ -281,7 +283,7 @@ def handle_contest_result(conn, is_correct):
     publish_scoreboard(change)
 
 
-def finalize_submission(conn, result_status, memory_usage, runtime, code_size):
+def finalize_submission(conn, result_status, memory_usage, runtime, code_size, public_records=None):
     """Persist one result, its statistics, contest score and completion atomically."""
     with conn:
         if lock_submission(conn) in ('COMPLETED', 'FAILED') or not current_attempt(conn):
@@ -296,6 +298,9 @@ def finalize_submission(conn, result_status, memory_usage, runtime, code_size):
         change = apply_contest_result(conn, is_correct) if IS_CONTEST else None
         update_solved_count(conn, is_correct)
         with conn.cursor() as cur:
+            if public_records is not None:
+                cur.execute("UPDATE solve_submission SET obo_public_records = %s::jsonb WHERE id = %s",
+                            (json.dumps(public_records, ensure_ascii=False), SUBMISSION_ID))
             cur.execute("UPDATE solve_submission SET submission_state = 'COMPLETED' WHERE id = %s",
                         (SUBMISSION_ID,))
             if GRADING_ATTEMPT is not None:
@@ -329,12 +334,21 @@ def main():
         integer(TESTCASE_COUNT, 1, MAX_CASES)
         integer(TIME_LIMIT, 1, MAX_TIME)
         integer(MEMORY_LIMIT, 16, MAX_MEMORY_MB)
+        snapshot = load_revision(conn, SUBMISSION_ID, PROBLEM_ID)
+        profile = snapshot.get('judgeProfile', 'text-v1') if snapshot else 'text-v1'
+        if profile not in ('text-v1', 'obo-v1'):
+            raise ValueError('Unsupported grading profile')
         source = read_object(s3, S3_BUCKET, CODE_S3_KEY, MAX_SOURCE)
         code_size = len(source)
         inputs, expected_outputs = [], []
-        for i in range(1, TESTCASE_COUNT + 1):
-            inputs.append(read_object(s3, S3_BUCKET, f'testcases/prob-{PROBLEM_ID}/input_{i}.txt', MAX_INPUT))
-            expected_outputs.append(read_object(s3, S3_BUCKET, f'testcases/prob-{PROBLEM_ID}/output_{i}.txt', MAX_OUTPUT).decode('utf-8'))
+        if snapshot:
+            inputs, expected_outputs = revision_cases(snapshot)
+            if len(inputs) != TESTCASE_COUNT or (snapshot['timeLimitMs'] + 999) // 1000 != TIME_LIMIT or snapshot['memoryLimitMb'] != MEMORY_LIMIT:
+                raise ValueError('Queued execution limits do not match submission revision')
+        else:
+            for i in range(1, TESTCASE_COUNT + 1):
+                inputs.append(read_object(s3, S3_BUCKET, f'testcases/prob-{PROBLEM_ID}/input_{i}.txt', MAX_INPUT))
+                expected_outputs.append(read_object(s3, S3_BUCKET, f'testcases/prob-{PROBLEM_ID}/output_{i}.txt', MAX_OUTPUT).decode('utf-8'))
 
         # Only code and stdin cross into the separate, credential-free task.
         execution = create_runner(s3).execute(LANGUAGE, source, inputs, TIME_LIMIT, MEMORY_LIMIT)
@@ -344,7 +358,9 @@ def main():
         final_verdict = 'CORRECT'
         max_runtime_ms = 0
         max_memory_kb = 0
-        for item, expected in zip(execution['cases'], expected_outputs):
+        public_records = []
+        public_bytes = 0
+        for case_index, (item, expected) in enumerate(zip(execution['cases'], expected_outputs)):
             max_runtime_ms = max(max_runtime_ms, item['runtimeMs'])
             max_memory_kb = max(max_memory_kb, item['memoryKb'])
             if item['verdict'] == 'TIME_LIMIT_EXCEEDED':
@@ -358,12 +374,27 @@ def main():
             except UnicodeError:
                 final_verdict = 'ERROR'
                 break
-            if not compare_output(actual, expected):
+            if profile == 'obo-v1':
+                verdict = semantic_verdict(snapshot, case_index, actual)
+                correct = verdict['correct']
+                record = public_record(snapshot, case_index, verdict)
+                if record is not None:
+                    size = len(json.dumps(record, ensure_ascii=False).encode('utf-8'))
+                    if public_bytes + size <= 16 * 1048576:
+                        public_records.append(record); public_bytes += size
+                    else:
+                        public_records.append({'caseIndex': case_index + 1, 'omitted': '표시 기록의 전체 용량 한도를 초과했습니다.'})
+            else:
+                correct = compare_output(actual, expected)
+            if not correct:
                 final_verdict = 'WRONG'
                 break
 
         # ④ 최종 결과 저장 (solve_submission + solve_result 는 항상)
-        finalize_submission(conn, final_verdict, max_memory_kb, max_runtime_ms, code_size)
+        if profile == 'obo-v1':
+            finalize_submission(conn, final_verdict, max_memory_kb, max_runtime_ms, code_size, public_records)
+        else:
+            finalize_submission(conn, final_verdict, max_memory_kb, max_runtime_ms, code_size)
 
         print(f'[DONE] submissionId={SUBMISSION_ID} result={final_verdict} '
               f'runtime={max_runtime_ms}ms memory={max_memory_kb}KB contest={IS_CONTEST}')

@@ -5,6 +5,7 @@ Never reads production credentials or connects to an existing database.
 Cluster files and logs remain in the OS temp directory for diagnosis.
 """
 import ast
+import json
 from contextlib import closing, contextmanager
 from concurrent.futures import ThreadPoolExecutor
 import os
@@ -26,6 +27,7 @@ if os.environ.get("DIVEON_GRADING_PG_TEST") == "approved":
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import execution_protocol as protocol
+import obo_assessment
 
 
 def load_handler(submission_id):
@@ -35,12 +37,13 @@ def load_handler(submission_id):
     tree = ast.parse(source.read_text(encoding='utf-8-sig'))
     functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)]
     namespace = {
-        'sys': sys, 'time': time, 'os': os, 'SUBMISSION_ID': str(submission_id), 'GRADING_ATTEMPT': None,
+        'sys': sys, 'time': time, 'os': os, 'json': json, 'SUBMISSION_ID': str(submission_id), 'GRADING_ATTEMPT': None,
         'CONTEST_ID': '1', 'CONTEST_PROBLEM_ID': '2', 'CONTEST_POINTS': 100,
     }
     exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), 'exec'), namespace)
     namespace.update({name: getattr(protocol, name) for name in ('MAX_SOURCE', 'MAX_INPUT', 'MAX_OUTPUT', 'MAX_TIME', 'MAX_MEMORY_MB', 'MAX_CASES', 'integer', 'decode')})
     namespace['update_scoreboard'] = Mock()
+    namespace.update({name: getattr(obo_assessment,name) for name in ('load_revision','revision_cases','semantic_verdict','public_record')})
     return namespace
 
 
@@ -94,8 +97,10 @@ class ContestResultTest(unittest.TestCase):
                     );
                     CREATE TABLE solve_submission (
                         id bigint PRIMARY KEY, prob_id bigint REFERENCES problem_summary,
-                        submission_state text NOT NULL, user_id bigint NOT NULL DEFAULT 7
+                        submission_state text NOT NULL, user_id bigint NOT NULL DEFAULT 7,
+                        obo_public_records jsonb, problem_revision_id text
                     );
+                    CREATE TABLE problem_revision (id text PRIMARY KEY, problem_id bigint, snapshot jsonb);
                     CREATE TABLE problem_solver (
                         prob_id bigint REFERENCES problem_summary ON DELETE CASCADE,
                         user_id bigint NOT NULL, PRIMARY KEY (prob_id, user_id)
@@ -144,6 +149,7 @@ class ContestResultTest(unittest.TestCase):
         with self.conn, self.conn.cursor() as cur:
             cur.execute('TRUNCATE contest_submission, contest_participant')
             cur.execute('TRUNCATE problem_solver, coding_grade_job, solve_result_coding, solve_result, solve_submission, problem_summary')
+            cur.execute('TRUNCATE problem_revision')
             cur.execute('ALTER TABLE contest_participant DROP CONSTRAINT IF EXISTS injected_failure')
             cur.execute('ALTER TABLE problem_summary DROP CONSTRAINT IF EXISTS injected_failure')
             cur.execute('ALTER TABLE solve_result_coding DROP CONSTRAINT IF EXISTS injected_failure')
@@ -317,6 +323,31 @@ class ContestResultTest(unittest.TestCase):
         self.assertTrue(self.finalize())
         self.assertEqual(self.score(), 100)
         self.assertEqual(self.full_state(), ('COMPLETED', 1, 1, 1, 1))
+
+    def test_public_records_share_result_transaction_and_attempt_fence(self):
+        self.prepare_tracked_submission()
+        records = [{'caseIndex': 1, 'reported': {'v': 1, 'result': {'answer': 7}}}]
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('UPDATE coding_grade_job SET attempt_no=2')
+        finalize = self.scope['finalize_submission']
+        self.assertFalse(finalize(self.conn, 'CORRECT', 1, 1, 1, records))
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('SELECT obo_public_records FROM solve_submission WHERE id=101')
+            self.assertIsNone(cur.fetchone()[0])
+        self.scope['GRADING_ATTEMPT'] = 2
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('ALTER TABLE problem_summary ADD CONSTRAINT injected_failure CHECK (solved_count=0)')
+        with self.assertRaises(psycopg2.errors.CheckViolation):
+            finalize(self.conn, 'CORRECT', 1, 1, 1, records)
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('SELECT obo_public_records FROM solve_submission WHERE id=101')
+            self.assertIsNone(cur.fetchone()[0])
+            cur.execute('ALTER TABLE problem_summary DROP CONSTRAINT injected_failure')
+        self.assertTrue(finalize(self.conn, 'CORRECT', 1, 1, 1, records))
+        self.assertFalse(finalize(self.conn, 'WRONG', 1, 1, 1, [{'caseIndex': 99}]))
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('SELECT obo_public_records FROM solve_submission WHERE id=101')
+            self.assertEqual(cur.fetchone()[0], records)
 
     def test_failed_submission_rejects_late_results_including_legacy(self):
         self.prepare_tracked_submission()
@@ -537,6 +568,31 @@ class ContestResultTest(unittest.TestCase):
         self.scope['main']()
         self.scope['main']()
         self.assertEqual(self.full_state(), ('COMPLETED', 1, 0, 1, 1))
+
+    def test_semantic_main_reads_frozen_cases_and_persists_only_public_record(self):
+        self.setup_main()
+        snapshot = {'v': 1, 'type': 'coding', 'judgeProfile': 'obo-v1', 'modelVersion': 1,
+                    'timeLimitMs': 1000, 'memoryLimitMb': 256,
+                    'obo': {'simulation': {'question': {'gradingInstanceId': 'a', 'assessmentMode': 'result'},
+                                          'instances': [{'id': 'a', 'scenarioId': 'ST2'}]}},
+                    'testcases': [{'isSample': True, 'input': '{"processes":{"P":"New"},"actions":[]}', 'output': 'ignored'},
+                                  {'isSample': False, 'input': '{"processes":{"hidden_actor":"Ready"},"actions":[]}', 'output': 'hidden_expected'}]}
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('INSERT INTO problem_revision VALUES (%s,2,%s::jsonb)', ('2:frozen',json.dumps(snapshot)))
+            cur.execute("UPDATE solve_submission SET problem_revision_id='2:frozen' WHERE id=101")
+        self.scope['TESTCASE_COUNT'] = 2
+        self.scope['create_runner'].return_value.execute.return_value = {'compileError': False, 'cases': [
+            {'verdict': 'OK', 'runtimeMs': 1, 'memoryKb': 1024, 'stdout': protocol.encode(b'{"v":1,"result":{"states":{"P":"New"}}}')},
+            {'verdict': 'OK', 'runtimeMs': 1, 'memoryKb': 1024, 'stdout': protocol.encode(b'{"v":1,"result":{"states":{"hidden_actor":"Ready"}}}')} ]}
+        self.scope['main']()
+        self.assertEqual(self.full_state(), ('COMPLETED', 1, 1, 1, 1))
+        self.scope['read_object'].assert_called_once()  # Source only; testcase inputs come from the bound revision.
+        with self.conn, self.conn.cursor() as cur:
+            cur.execute('SELECT obo_public_records FROM solve_submission WHERE id=101')
+            records=cur.fetchone()[0]
+            self.assertEqual(len(records),1)
+            self.assertNotIn('hidden',json.dumps(records))
+            self.assertEqual(records[0]['reported']['result']['states'],{'P':'New'})
 
     def test_main_storage_failure_does_not_create_fake_error_and_can_retry(self):
         self.setup_main()

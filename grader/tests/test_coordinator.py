@@ -1,11 +1,13 @@
 """Actual coordinator functions, with storage/execution/DB mocked; no services start."""
 import ast
+import json
 import sys
 import unittest
 from pathlib import Path
 from unittest.mock import Mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import execution_protocol as protocol
+from obo_assessment import revision_cases, semantic_verdict, public_record
 
 
 class CoordinatorTest(unittest.TestCase):
@@ -20,10 +22,11 @@ class CoordinatorTest(unittest.TestCase):
         self.execution = dict(compileError=False, cases=[dict(verdict='OK', runtimeMs=3, memoryKb=1024, stdout=protocol.encode(b'answer\n'))])
         self.runner.execute.return_value = self.execution
         self.conn = Mock()
-        self.scope.update(sys=sys, create_storage_client=Mock(), get_db_conn=lambda: self.conn, SUBMISSION_ID='7',
+        self.scope.update(sys=sys, json=json, create_storage_client=Mock(), get_db_conn=lambda: self.conn, SUBMISSION_ID='7',
             PROBLEM_ID='8', LANGUAGE='python', CODE_S3_KEY='code', S3_BUCKET='trusted-code',
             TIME_LIMIT=1, MEMORY_LIMIT=256, TESTCASE_COUNT=1, IS_CONTEST=False,
             begin_grading=Mock(return_value=True), finalize_submission=Mock(), report_attempt_failure=Mock(),
+            load_revision=Mock(return_value=None),
             create_runner=Mock(return_value=self.runner),
             read_object=Mock(side_effect=[b'print(input())', b'input', b'answer\n']))
 
@@ -58,6 +61,44 @@ class CoordinatorTest(unittest.TestCase):
         self.assertNotIn('subprocess', source)
         self.assertNotIn('def compile_code', source)
         self.assertNotIn('def run_testcase', source)
+
+    def use_revision(self, profile='text-v1'):
+        snapshot = dict(v=1, type='coding', modelVersion=1, judgeProfile=profile,
+                        timeLimitMs=1000, memoryLimitMb=256,
+                        testcases=[dict(input='frozen input', output='answer\n', isSample=False)])
+        self.scope['load_revision'].return_value = snapshot
+        self.scope.update(revision_cases=revision_cases, semantic_verdict=semantic_verdict, public_record=public_record)
+        self.scope['read_object'].side_effect = [b'print(input())']
+        return snapshot
+
+    def test_revision_cases_do_not_read_mutable_s3_testcase_paths(self):
+        self.use_revision()
+        self.scope['main']()
+        self.scope['read_object'].assert_called_once()
+        self.runner.execute.assert_called_once_with('python', b'print(input())', [b'frozen input'], 1, 256)
+        self.assertEqual('CORRECT', self.scope['finalize_submission'].call_args.args[1])
+
+    def test_semantic_grading_uses_model_result_not_text_output(self):
+        snapshot = self.use_revision('obo-v1')
+        snapshot['testcases'][0]['input'] = '{"processes":{"P":"New"},"actions":[]}'
+        snapshot['testcases'][0]['output'] = 'this is intentionally not the grading reference'
+        snapshot['obo'] = {'simulation': {'question': {'gradingInstanceId': 'sim', 'assessmentMode': 'result'},
+                                          'instances': [{'id': 'sim', 'scenarioId': 'ST2'}]}}
+        self.execution['cases'][0]['stdout'] = protocol.encode(b'{"v":1,"result":{"states":{"P":"New"}}}')
+        self.scope['main']()
+        self.assertEqual('CORRECT', self.scope['finalize_submission'].call_args.args[1])
+
+    def test_bad_model_configuration_and_revision_mismatch_are_infrastructure_failures(self):
+        snapshot = self.use_revision('obo-v1')
+        snapshot['obo'] = {}
+        self.assertEqual(1, self.scope['main']())
+        self.scope['finalize_submission'].assert_not_called()
+        self.setUp()
+        snapshot = self.use_revision()
+        snapshot['memoryLimitMb'] = 512
+        self.assertEqual(1, self.scope['main']())
+        self.scope['finalize_submission'].assert_not_called()
+        self.runner.execute.assert_not_called()
 
 
 if __name__ == '__main__': unittest.main()

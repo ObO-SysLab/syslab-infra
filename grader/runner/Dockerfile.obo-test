@@ -1,0 +1,8 @@
+ARG RUNNER_IMAGE=diveon-runner:audit-local
+FROM ${RUNNER_IMAGE}
+# Trusted checker stays outside the student chroot.
+RUN apt-get update && apt-get install -y --no-install-recommends nodejs && rm -rf /var/lib/apt/lists/*
+COPY obo_checker.py obo_assessment.py /opt/runner/
+COPY obo_runtime /opt/runner/obo_runtime
+COPY runner/test_linux_sandbox.py runner/test_obo_linux.py /opt/runner/
+CMD ["python3", "-B", "-m", "unittest", "test_linux_sandbox", "test_obo_linux", "-v"]

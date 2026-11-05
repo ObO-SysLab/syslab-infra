@@ -33,6 +33,15 @@ class StaleRunnerMonitorTest(unittest.TestCase):
         self.assertEqual(self.sweep()["stale"], 1)
         self.ecs.stop_task.assert_not_called()
 
+    def test_service_rejecting_combined_family_and_launch_type_is_supported(self):
+        def paginate(**filters):
+            if "family" in filters and "launchType" in filters:
+                raise ValueError("ECS cannot combine family and launchType filters")
+            return [{"taskArns": ["task-1"]}]
+
+        self.ecs.get_paginator.return_value.paginate.side_effect = paginate
+        self.assertEqual(self.sweep(True)["stopRequested"], 1)
+
     def test_old_running_pending_and_provisioning_are_stopped_after_recheck(self):
         for status in ("RUNNING", "PENDING", "PROVISIONING"):
             self.task["lastStatus"] = status

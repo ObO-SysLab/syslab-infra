@@ -66,8 +66,10 @@ def sweep(ecs, config, now=None, remaining_ms=None):
     families = sorted({definition.rsplit("/", 1)[1].rsplit(":", 1)[0] for definition in config.definitions})
     for family in families:
         # desiredStatus RUNNING includes provisioning/pending; desired PENDING returns no tasks.
+        # ECS rejects combining family and launchType filters. owned() verifies
+        # FARGATE after describing each task, before any stop request.
         for page in ecs.get_paginator("list_tasks").paginate(
-                cluster=config.cluster, family=family, launchType="FARGATE", desiredStatus="RUNNING"):
+                cluster=config.cluster, family=family, desiredStatus="RUNNING"):
             for arn in page.get("taskArns", []):
                 if arn in seen:
                     continue

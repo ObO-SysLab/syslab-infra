@@ -40,6 +40,11 @@ def package(root, destination, revision):
             relative = path.relative_to(root)
             if any(p in {"node_modules", "__pycache__", "tests"} for p in relative.parts):
                 continue
+            if (path.name.startswith("test_") or ".test." in path.name
+                    or path.name.startswith("Dockerfile.") and path.name.endswith("test")
+                    or path.name.endswith("-fixtures.json")
+                    or path.name == "sqs_message_sample.json"):
+                continue
             if not path.is_file() or (path.suffix not in SUFFIXES and path.name != "Dockerfile"):
                 continue
             if path.is_symlink() or not path.resolve().is_relative_to(root):

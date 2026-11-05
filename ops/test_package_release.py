@@ -36,6 +36,25 @@ class ReleasePackageTest(unittest.TestCase):
             package(self.root, destination, "a" * 40)
         self.assertFalse(destination.exists())
 
+    def test_excludes_test_assets_but_keeps_runtime_contract_and_build_dockerfile(self):
+        excluded = ("grader/tests/test_coordinator.py", "grader/runner/test_linux_sandbox.py",
+                    "grader/runner/Dockerfile.obo-test", "grader/runner/diagram-fixtures.json",
+                    "vm/ws-server/auth.test.js", "vm/lifecycle/test_lifecycle.py",
+                    "vm/codebuild/test_build_image.py", "vm/codebuild/sqs_message_sample.json")
+        included = ("grader/obo_runtime/diagram-contract.json", "vm/codebuild/Dockerfile")
+        for name in excluded + included:
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(name, encoding="utf-8")
+        destination = Path(self.temp.name) / "release"
+        manifest = package(self.root, destination, "a" * 40)
+        with zipfile.ZipFile(destination / "infrastructure.zip") as archive:
+            for name in excluded:
+                self.assertNotIn(name, archive.namelist())
+                self.assertNotIn(name, manifest["files"])
+            for name in included:
+                self.assertIn(name, archive.namelist())
+
     def test_refuses_mutable_revision_or_overwrite(self):
         destination = Path(self.temp.name) / "release"
         with self.assertRaises(ValueError):

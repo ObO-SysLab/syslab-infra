@@ -3,13 +3,15 @@
   "files": {
     "index.mjs": "47d4a3c5a9b458af56de66c23ad62deb80f93bd3388b3445530a0a0596f1e39c",
     "contracts.mjs": "fbe4d24fa560c25eaf68fb64217ffc8fdb8b903e65e6be1b0e246d80b1c7190c",
+    "diagram-contract.json": "ef157de32ce1e881b8399db36d2a324b5f0714565a55fda462b414b14a518c26",
     "validation.mjs": "a991986fbe674a51cc68cab9f3825eef604f180044ba3851777f27436626020b",
     "cpu.mjs": "82214711c88ee7f91ea045e3c2d8cf3dbd4c20a2b59f840c17f93486510bde23",
+    "rrText.mjs": "e437cf0bb8775e18c4b3be686c2007b01fd43b0064b20515a0b36441096e1d02",
     "memory.mjs": "684235430aa381895c9925e63d46f811bf58b467f2346e288fe22c017e52ddec",
     "flows.mjs": "ed3ba696248498b9b665a9a37b277f44d9c95f7fa943271a6b2c9f78619d5763",
     "synchronization.mjs": "77483e89cd4b7b9636e88df7017616af92110c17657b73fff6260c893dd858f2",
-    "document.mjs": "bf8d617fe4ba18584a4455476fecd0becc0cbd6bc0b5c7da87869c71a1c65675",
+    "document.mjs": "c840d29ec8b9c07b0b33e7cf48f94cd6917e6d23fffccf30969ae39e06c5ff69",
     "freeDiagram.mjs": "ffa1eb94e9dd944a1e07c8e84f1e4c2cb19e20f2c07be1d000c0ae7f04372e8f",
-    "checker.mjs": "7b5c7148fbdcf3b957fa1859f3c38da99d75dfa58a6fe6a6c18cb6dbd2d65ec5"
+    "checker.mjs": "1d2706f4691ac9d2dd264fad37fb06bd90a59a29de95f5c5f8a29801e9cb3dd8"
   }
 }

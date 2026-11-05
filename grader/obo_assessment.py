@@ -67,6 +67,13 @@ def semantic_verdict(snapshot, case_index, stdout):
     instances = [item for item in document.get('instances', []) if item.get('id') == question.get('gradingInstanceId')]
     if len(instances) != 1:
         raise OboCheckerError('Missing grading model')
+    if question.get('ioFormat') == 'rr-segments-v1':
+        if instances[0]['scenarioId'] != 'RR' or question.get('assessmentMode') != 'result':
+            raise OboCheckerError('Invalid RR grading contract')
+        verdict = invoke({'operation': 'rrGrade', 'input': snapshot['testcases'][case_index]['input'], 'stdout': stdout})
+        if verdict.get('kind') not in ('correct', 'wrong') or type(verdict.get('correct')) is not bool:
+            raise OboCheckerError('Invalid RR verdict')
+        return verdict
     # Each testcase's stdin is its complete model input; UI inputs are explanation presets only.
     case_input = strict_json(snapshot['testcases'][case_index]['input'])
     return grade_output(instances[0]['scenarioId'], case_input, question.get('assessmentMode'), stdout)
@@ -78,15 +85,20 @@ def public_record(snapshot, case_index, verdict):
         return None
     document = snapshot['obo']['simulation']
     instance = next(item for item in document['instances'] if item['id'] == document['question']['gradingInstanceId'])
-    model_input = strict_json(case['input'])
-    reference = invoke({'operation': 'reference', 'scenarioId': instance['scenarioId'], 'input': model_input})
+    rr = document['question'].get('ioFormat') == 'rr-segments-v1'
+    if rr:
+        parsed = invoke({'operation': 'rrReference', 'input': case['input']})
+        model_input, reference = parsed['input'], parsed['reference']
+    else:
+        model_input = strict_json(case['input'])
+        reference = invoke({'operation': 'reference', 'scenarioId': instance['scenarioId'], 'input': model_input})
     reference.pop('ok', None)
     reported = verdict.get('reported')
     if verdict['correct'] and not verdict['traceValid'] and reported and 'events' in reported:
         reported = {'v': 1, 'result': reported['result']}
     return dict(caseIndex=case_index + 1, scenarioId=instance['scenarioId'], input=model_input,
                 reference=reference, reported=reported, correct=verdict['correct'],
-                traceValid=verdict['traceValid'], message=verdict.get('message', ''))
+                traceValid=verdict['traceValid'], message=verdict.get('message', ''), **({'kind':'rr-schedule'} if rr else {}))
 
 
 def public_diagram_record(snapshot, case_index, stdout):

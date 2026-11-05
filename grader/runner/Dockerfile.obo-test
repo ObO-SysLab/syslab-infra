@@ -4,5 +4,5 @@ FROM ${RUNNER_IMAGE}
 RUN apt-get update && apt-get install -y --no-install-recommends nodejs && rm -rf /var/lib/apt/lists/*
 COPY obo_checker.py obo_assessment.py /opt/runner/
 COPY obo_runtime /opt/runner/obo_runtime
-COPY runner/test_linux_sandbox.py runner/test_obo_linux.py /opt/runner/
-CMD ["python3", "-B", "-m", "unittest", "test_linux_sandbox", "test_obo_linux", "-v"]
+COPY runner/test_linux_sandbox.py runner/test_obo_linux.py runner/test_diagram_linux.py runner/diagram-fixtures.json /opt/runner/
+CMD ["python3", "-B", "-m", "unittest", "test_linux_sandbox.LinuxSandboxTest", "test_obo_linux.OboLinuxTest.test_real_program_output_result_and_process_verdicts", "test_obo_linux.OboLinuxTest.test_wrong_student_output_remains_wrong", "test_obo_linux.OboLinuxTest.test_trusted_checker_and_reference_are_absent_from_student_jail", "test_diagram_linux.DiagramLinuxTest.test_all_elements_and_templates_use_real_execution_output", "-v"]

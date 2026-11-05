@@ -78,6 +78,30 @@ class RunnerClientTest(unittest.TestCase):
         for env in ({}, {**ENV, 'RUNNER_BUCKET': 'syslab-code'}, {**ENV, 'RUNNER_TASK_DEFINITION': 'runner:latest'}):
             with self.assertRaises(ExecutionFailure): RunnerClient(self.s3, self.ecs, env)
 
+    def test_aws_empty_host_volume_is_task_local_and_can_launch(self):
+        self.ecs.describe_task_definition.return_value['taskDefinition']['volumes'] = [
+            {'name': 'work', 'host': {}}]
+        self.assertEqual(self.execute()['cases'][0]['verdict'], 'OK')
+        self.ecs.run_task.assert_called_once()
+
+    def test_volume_normalization_never_allows_shared_or_additional_storage(self):
+        cases = [
+            [{'name': 'work', 'host': {'sourcePath': '/'}}],
+            [{'name': 'work', 'host': {'sourcePath': ''}}],
+            [{'name': 'work', 'host': None}],
+            [{'name': 'work', 'host': {}, 'efsVolumeConfiguration': {}}],
+            [{'name': 'work', 'host': {}, 'dockerVolumeConfiguration': {}}],
+            [{'name': 'work', 'host': {}, 'configuredAtLaunch': True}],
+            [{'name': 'work', 'host': {}}, {'name': 'shared'}],
+        ]
+        for volumes in cases:
+            with self.subTest(volumes=volumes):
+                self.ecs.describe_task_definition.return_value['taskDefinition']['volumes'] = volumes
+                with self.assertRaises(ExecutionFailure):
+                    self.execute()
+        self.ecs.run_task.assert_not_called()
+        self.s3.put_object.assert_not_called()
+
     def test_running_task_deadline_stops_only_owned_task(self):
         self.ecs.describe_tasks.return_value['tasks'][0]['lastStatus'] = 'RUNNING'
         with self.assertRaisesRegex(ExecutionFailure, 'deadline'): self.execute()

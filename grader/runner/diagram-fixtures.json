@@ -1,0 +1,2971 @@
+{
+  "fixtures": [
+    {
+      "id": "ST2",
+      "blob": {
+        "nodes": [
+          {
+            "id": "new",
+            "type": "state-node",
+            "position": {
+              "x": 50,
+              "y": 180
+            },
+            "data": {
+              "label": "New",
+              "shape": "circle",
+              "fill": "#64748b"
+            }
+          },
+          {
+            "id": "ready",
+            "type": "state-node",
+            "position": {
+              "x": 270,
+              "y": 70
+            },
+            "data": {
+              "label": "Ready",
+              "shape": "circle",
+              "fill": "#7c3aed"
+            }
+          },
+          {
+            "id": "running",
+            "type": "state-node",
+            "position": {
+              "x": 490,
+              "y": 180
+            },
+            "data": {
+              "label": "Running",
+              "shape": "circle",
+              "fill": "#0d9488"
+            }
+          },
+          {
+            "id": "waiting",
+            "type": "state-node",
+            "position": {
+              "x": 270,
+              "y": 300
+            },
+            "data": {
+              "label": "Waiting",
+              "shape": "circle",
+              "fill": "#d97706"
+            }
+          },
+          {
+            "id": "terminated",
+            "type": "state-node",
+            "position": {
+              "x": 720,
+              "y": 180
+            },
+            "data": {
+              "label": "Terminated",
+              "shape": "circle",
+              "fill": "#e11d48"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "e-new-ready",
+            "source": "new",
+            "sourceHandle": "r",
+            "target": "ready",
+            "targetHandle": "l",
+            "type": "obo-edge",
+            "data": {
+              "label": "admitted",
+              "direction": "forward",
+              "style": "solid",
+              "role": "transition",
+              "emphasize": false
+            }
+          },
+          {
+            "id": "e-ready-running",
+            "source": "ready",
+            "sourceHandle": "b",
+            "target": "running",
+            "targetHandle": "l",
+            "type": "obo-edge",
+            "data": {
+              "label": "dispatch",
+              "direction": "forward",
+              "style": "solid",
+              "role": "transition",
+              "emphasize": false
+            }
+          },
+          {
+            "id": "e-running-ready",
+            "source": "running",
+            "sourceHandle": "t",
+            "target": "ready",
+            "targetHandle": "r",
+            "type": "obo-edge",
+            "data": {
+              "label": "interrupt",
+              "direction": "forward",
+              "style": "solid",
+              "role": "transition",
+              "emphasize": false
+            }
+          },
+          {
+            "id": "e-running-waiting",
+            "source": "running",
+            "sourceHandle": "b",
+            "target": "waiting",
+            "targetHandle": "r",
+            "type": "obo-edge",
+            "data": {
+              "label": "I/O wait",
+              "direction": "forward",
+              "style": "solid",
+              "role": "transition",
+              "emphasize": false
+            }
+          },
+          {
+            "id": "e-waiting-ready",
+            "source": "waiting",
+            "sourceHandle": "t",
+            "target": "ready",
+            "targetHandle": "b",
+            "type": "obo-edge",
+            "data": {
+              "label": "I/O done",
+              "direction": "forward",
+              "style": "solid",
+              "role": "transition",
+              "emphasize": false
+            }
+          },
+          {
+            "id": "e-running-terminated",
+            "source": "running",
+            "sourceHandle": "r",
+            "target": "terminated",
+            "targetHandle": "l",
+            "type": "obo-edge",
+            "data": {
+              "label": "exit",
+              "direction": "forward",
+              "style": "solid",
+              "role": "transition",
+              "emphasize": false
+            }
+          }
+        ],
+        "frames": []
+      }
+    },
+    {
+      "id": "S1",
+      "blob": {
+        "nodes": [
+          {
+            "id": "ref-string",
+            "type": "slot-grid",
+            "position": {
+              "x": 40,
+              "y": 0
+            },
+            "data": {
+              "label": "참조순서",
+              "slotCount": 8,
+              "slots": [
+                7,
+                0,
+                1,
+                2,
+                0,
+                3,
+                0,
+                4
+              ],
+              "activeSlotIndex": null
+            }
+          },
+          {
+            "id": "frames",
+            "type": "slot-grid",
+            "position": {
+              "x": 40,
+              "y": 160
+            },
+            "data": {
+              "label": "메모리",
+              "slotCount": 3,
+              "slots": [
+                null,
+                null,
+                null
+              ],
+              "pointerLabel": "다음 교체",
+              "faultSlotIndex": null,
+              "hitSlotIndex": null,
+              "pointerSlotIndex": null
+            }
+          },
+          {
+            "id": "fault-legend",
+            "type": "text-label",
+            "position": {
+              "x": 320,
+              "y": 180
+            },
+            "data": {
+              "text": "FAULT · 없어서 적재하거나 교체",
+              "variant": "plain",
+              "color": "#be123c"
+            }
+          },
+          {
+            "id": "hit-legend",
+            "type": "text-label",
+            "position": {
+              "x": 320,
+              "y": 212
+            },
+            "data": {
+              "text": "HIT · 이미 있어 그대로 사용",
+              "variant": "plain",
+              "color": "#047857"
+            }
+          },
+          {
+            "id": "fifo-note",
+            "type": "text-label",
+            "position": {
+              "x": 320,
+              "y": 250
+            },
+            "data": {
+              "text": "빈칸이 남아 있으면 먼저 빈칸에 적재",
+              "variant": "plain",
+              "color": "#64748b"
+            }
+          },
+          {
+            "id": "status",
+            "type": "text-label",
+            "position": {
+              "x": 40,
+              "y": 340
+            },
+            "data": {
+              "text": "FIFO · 값과 강조는 각 장면에서 직접 지정",
+              "variant": "pill",
+              "color": "#4338ca"
+            }
+          }
+        ],
+        "edges": [],
+        "frames": [
+          {
+            "id": "page-start",
+            "label": "빈 메모리에서 시작합니다. 위의 참조 순서와 아래 메모리 칸을 함께 살펴보세요.",
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {
+              "status": {
+                "text": "시작 · 아직 참조한 페이지가 없습니다."
+              }
+            }
+          },
+          {
+            "id": "page-1",
+            "label": "참조 7 · 빈 칸 0에 7을 적재합니다.",
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {
+              "ref-string": {
+                "activeSlotIndex": 0
+              },
+              "frames": {
+                "slots": [
+                  7,
+                  null,
+                  null
+                ],
+                "faultSlotIndex": 0,
+                "pointerSlotIndex": 0
+              },
+              "status": {
+                "text": "1 / 8 · 페이지 7 → FAULT · 빈칸 적재"
+              }
+            }
+          },
+          {
+            "id": "page-2",
+            "label": "참조 0 · 빈 칸 1에 0을 적재합니다.",
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {
+              "ref-string": {
+                "activeSlotIndex": 1
+              },
+              "frames": {
+                "slots": [
+                  7,
+                  0,
+                  null
+                ],
+                "faultSlotIndex": 1,
+                "pointerSlotIndex": 0
+              },
+              "status": {
+                "text": "2 / 8 · 페이지 0 → FAULT · 빈칸 적재"
+              }
+            }
+          },
+          {
+            "id": "page-3",
+            "label": "참조 1 · 빈 칸 2에 1을 적재합니다. 이제 메모리가 가득 찼습니다.",
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {
+              "ref-string": {
+                "activeSlotIndex": 2
+              },
+              "frames": {
+                "slots": [
+                  7,
+                  0,
+                  1
+                ],
+                "faultSlotIndex": 2,
+                "pointerSlotIndex": 0
+              },
+              "status": {
+                "text": "3 / 8 · 페이지 1 → FAULT · 빈칸 적재"
+              }
+            }
+          },
+          {
+            "id": "page-4",
+            "label": "참조 2 · 가장 먼저 들어온 7을 내보내고 2를 넣습니다.",
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {
+              "ref-string": {
+                "activeSlotIndex": 3
+              },
+              "frames": {
+                "slots": [
+                  2,
+                  0,
+                  1
+                ],
+                "faultSlotIndex": 0,
+                "pointerSlotIndex": 1
+              },
+              "status": {
+                "text": "4 / 8 · 페이지 2 → FAULT · 칸 0 교체"
+              }
+            }
+          },
+          {
+            "id": "page-5",
+            "label": "참조 0 · 0이 이미 있습니다. HIT에서는 FIFO 교체 순서가 바뀌지 않습니다.",
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {
+              "ref-string": {
+                "activeSlotIndex": 4
+              },
+              "frames": {
+                "slots": [
+                  2,
+                  0,
+                  1
+                ],
+                "hitSlotIndex": 1,
+                "pointerSlotIndex": 1
+              },
+              "status": {
+                "text": "5 / 8 · 페이지 0 → HIT · 칸의 값과 교체 순서 유지"
+              }
+            }
+          },
+          {
+            "id": "page-6",
+            "label": "참조 3 · 가장 먼저 들어온 0을 내보내고 3을 넣습니다.",
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {
+              "ref-string": {
+                "activeSlotIndex": 5
+              },
+              "frames": {
+                "slots": [
+                  2,
+                  3,
+                  1
+                ],
+                "faultSlotIndex": 1,
+                "pointerSlotIndex": 2
+              },
+              "status": {
+                "text": "6 / 8 · 페이지 3 → FAULT · 칸 1 교체"
+              }
+            }
+          },
+          {
+            "id": "page-7",
+            "label": "참조 0 · 가장 먼저 들어온 1을 내보내고 0을 넣습니다.",
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {
+              "ref-string": {
+                "activeSlotIndex": 6
+              },
+              "frames": {
+                "slots": [
+                  2,
+                  3,
+                  0
+                ],
+                "faultSlotIndex": 2,
+                "pointerSlotIndex": 0
+              },
+              "status": {
+                "text": "7 / 8 · 페이지 0 → FAULT · 칸 2 교체"
+              }
+            }
+          },
+          {
+            "id": "page-8",
+            "label": "참조 4 · 가장 먼저 들어온 2를 내보내고 4를 넣습니다.",
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {
+              "ref-string": {
+                "activeSlotIndex": 7
+              },
+              "frames": {
+                "slots": [
+                  4,
+                  3,
+                  0
+                ],
+                "faultSlotIndex": 0,
+                "pointerSlotIndex": 1
+              },
+              "status": {
+                "text": "8 / 8 · 페이지 4 → FAULT · 칸 0 교체"
+              }
+            }
+          },
+          {
+            "id": "page-complete",
+            "label": "참조 완료 · FAULT 7회, HIT 1회입니다. 빈칸에 처음 넣는 경우도 FAULT에 포함됩니다.",
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {
+              "status": {
+                "text": "완료 · FAULT 7회 / HIT 1회 · 최종 메모리 4, 3, 0"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "G1",
+      "blob": {
+        "nodes": [
+          {
+            "id": "schedule-title",
+            "type": "text-label",
+            "position": {
+              "x": 40,
+              "y": 20
+            },
+            "data": {
+              "text": "FCFS 예제 · P1 → P2 → P3 · 시간 단위",
+              "variant": "plain",
+              "color": "#334155"
+            }
+          },
+          {
+            "id": "status",
+            "type": "text-label",
+            "position": {
+              "x": 40,
+              "y": 52
+            },
+            "data": {
+              "text": "같은 시간축에서 비교 · 막대를 눌러 구간 확인",
+              "variant": "plain",
+              "color": "#64748b"
+            }
+          },
+          {
+            "id": "track-p1",
+            "type": "gantt-lane",
+            "position": {
+              "x": 40,
+              "y": 100
+            },
+            "data": {
+              "trackId": "P1",
+              "ganttGroup": "기본 간트",
+              "axisEnd": 9,
+              "blocks": [
+                {
+                  "start": 0,
+                  "end": 3,
+                  "colorKey": "teal"
+                }
+              ],
+              "activeBlockIndex": null
+            }
+          },
+          {
+            "id": "track-p2",
+            "type": "gantt-lane",
+            "position": {
+              "x": 40,
+              "y": 228
+            },
+            "data": {
+              "trackId": "P2",
+              "ganttGroup": "기본 간트",
+              "axisEnd": 9,
+              "blocks": [
+                {
+                  "start": 3,
+                  "end": 6,
+                  "colorKey": "indigo"
+                }
+              ],
+              "activeBlockIndex": null
+            }
+          },
+          {
+            "id": "track-p3",
+            "type": "gantt-lane",
+            "position": {
+              "x": 40,
+              "y": 356
+            },
+            "data": {
+              "trackId": "P3",
+              "ganttGroup": "기본 간트",
+              "axisEnd": 9,
+              "blocks": [
+                {
+                  "start": 6,
+                  "end": 9,
+                  "colorKey": "amber"
+                }
+              ],
+              "activeBlockIndex": null
+            }
+          }
+        ],
+        "edges": [],
+        "frames": [
+          {
+            "id": "f_1",
+            "label": "시간 0 · P1이 실행을 시작합니다. 실행 구간은 0–3입니다.",
+            "cursorTime": 0,
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {
+              "track-p1": {
+                "activeBlockIndex": 0
+              }
+            }
+          },
+          {
+            "id": "f_2",
+            "label": "시간 3 · P1이 끝나고 P2가 실행을 시작합니다.",
+            "cursorTime": 3,
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {
+              "track-p2": {
+                "activeBlockIndex": 0
+              }
+            }
+          },
+          {
+            "id": "f_3",
+            "label": "시간 6 · P2가 끝나고 P3가 실행을 시작합니다.",
+            "cursorTime": 6,
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {
+              "track-p3": {
+                "activeBlockIndex": 0
+              }
+            }
+          },
+          {
+            "id": "f_4",
+            "label": "시간 9 · 예제의 모든 실행 구간이 끝났습니다.",
+            "cursorTime": 9,
+            "highlightNodes": [],
+            "highlightEdges": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "G2",
+      "blob": {
+        "nodes": [
+          {
+            "id": "rr-title",
+            "type": "text-label",
+            "position": {
+              "x": 40,
+              "y": 0
+            },
+            "data": {
+              "text": "라운드 로빈 · 한 번에 최대 2시간 단위 · 문맥 교환 비용 0",
+              "variant": "plain",
+              "color": "#334155"
+            }
+          },
+          {
+            "id": "rr-inputs",
+            "type": "text-label",
+            "position": {
+              "x": 40,
+              "y": 28
+            },
+            "data": {
+              "text": "P1: 도착 0 / 실행 5   ·   P2: 도착 0 / 실행 3   ·   P3: 도착 12 / 실행 3",
+              "variant": "plain",
+              "color": "#475569"
+            }
+          },
+          {
+            "id": "rr-idle",
+            "type": "text-label",
+            "position": {
+              "x": 40,
+              "y": 56
+            },
+            "data": {
+              "text": "8–12: CPU 쉬는 시간 · 다른 빈칸까지 모두 대기를 뜻하지는 않습니다.",
+              "variant": "plain",
+              "color": "#64748b"
+            }
+          },
+          {
+            "id": "rr-p1",
+            "type": "gantt-lane",
+            "position": {
+              "x": 40,
+              "y": 100
+            },
+            "data": {
+              "trackId": "P1",
+              "ganttGroup": "라운드 로빈",
+              "axisEnd": 15,
+              "activeBlockIndex": null,
+              "blocks": [
+                {
+                  "start": 0,
+                  "end": 2,
+                  "colorKey": "teal"
+                },
+                {
+                  "start": 4,
+                  "end": 6,
+                  "colorKey": "teal"
+                },
+                {
+                  "start": 7,
+                  "end": 8,
+                  "colorKey": "teal"
+                }
+              ]
+            }
+          },
+          {
+            "id": "rr-p2",
+            "type": "gantt-lane",
+            "position": {
+              "x": 40,
+              "y": 228
+            },
+            "data": {
+              "trackId": "P2",
+              "ganttGroup": "라운드 로빈",
+              "axisEnd": 15,
+              "activeBlockIndex": null,
+              "blocks": [
+                {
+                  "start": 2,
+                  "end": 4,
+                  "colorKey": "indigo"
+                },
+                {
+                  "start": 6,
+                  "end": 7,
+                  "colorKey": "indigo"
+                }
+              ]
+            }
+          },
+          {
+            "id": "rr-p3",
+            "type": "gantt-lane",
+            "position": {
+              "x": 40,
+              "y": 356
+            },
+            "data": {
+              "trackId": "P3",
+              "ganttGroup": "라운드 로빈",
+              "axisEnd": 15,
+              "activeBlockIndex": null,
+              "blocks": [
+                {
+                  "start": 12,
+                  "end": 14,
+                  "colorKey": "amber"
+                },
+                {
+                  "start": 14,
+                  "end": 15,
+                  "colorKey": "amber"
+                }
+              ]
+            }
+          }
+        ],
+        "edges": [],
+        "frames": [
+          {
+            "id": "rr-scene-1",
+            "label": "시간 0 · 먼저 도착한 P1과 P2 중 P1부터 실행합니다. 한 번에 최대 2시간 단위를 사용합니다.",
+            "cursorTime": 0,
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {
+              "rr-p1": {
+                "activeBlockIndex": 0
+              }
+            }
+          },
+          {
+            "id": "rr-scene-2",
+            "label": "시간 2 · P1은 3만큼 남아 대기열 뒤로 갑니다. 이번에는 P2가 2–4 동안 실행합니다.",
+            "cursorTime": 2,
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {
+              "rr-p2": {
+                "activeBlockIndex": 0
+              }
+            }
+          },
+          {
+            "id": "rr-scene-3",
+            "label": "시간 4 · P2는 1만큼 남아 뒤로 갑니다. 다시 차례가 온 P1이 4–6 동안 실행합니다.",
+            "cursorTime": 4,
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {
+              "rr-p1": {
+                "activeBlockIndex": 1
+              }
+            }
+          },
+          {
+            "id": "rr-scene-4",
+            "label": "시간 6 · P1도 1만큼 남았습니다. P2는 남은 1만 실행하고 시간 7에 끝납니다.",
+            "cursorTime": 6,
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {
+              "rr-p2": {
+                "activeBlockIndex": 1
+              }
+            }
+          },
+          {
+            "id": "rr-scene-5",
+            "label": "시간 7 · P2가 끝났습니다. P1이 남은 1을 실행하고 시간 8에 끝납니다.",
+            "cursorTime": 7,
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {
+              "rr-p1": {
+                "activeBlockIndex": 2
+              }
+            }
+          },
+          {
+            "id": "rr-scene-6",
+            "label": "시간 8 · P1과 P2가 모두 끝났고 P3는 아직 도착하지 않았습니다. CPU는 8–12 동안 쉽니다.",
+            "cursorTime": 8,
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {}
+          },
+          {
+            "id": "rr-scene-7",
+            "label": "시간 12 · P3가 도착했습니다. 먼저 12–14 동안 2시간 단위를 실행합니다.",
+            "cursorTime": 12,
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {
+              "rr-p3": {
+                "activeBlockIndex": 0
+              }
+            }
+          },
+          {
+            "id": "rr-scene-8",
+            "label": "시간 14 · P3는 1만큼 남았습니다. 다른 대기 프로세스가 없어 P3가 계속 실행합니다.",
+            "cursorTime": 14,
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {
+              "rr-p3": {
+                "activeBlockIndex": 1
+              }
+            }
+          },
+          {
+            "id": "rr-scene-9",
+            "label": "시간 15 · P3까지 모두 끝났습니다. 실제 실행은 총 11, CPU가 쉰 시간은 4입니다.",
+            "cursorTime": 15,
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {}
+          }
+        ]
+      }
+    },
+    {
+      "id": "S3",
+      "blob": {
+        "nodes": [
+          {
+            "id": "p1",
+            "type": "state-node",
+            "position": {
+              "x": 40,
+              "y": 20
+            },
+            "data": {
+              "label": "P1",
+              "shape": "circle",
+              "fill": "#4f46e5"
+            }
+          },
+          {
+            "id": "r1",
+            "type": "resource-square",
+            "position": {
+              "x": 400,
+              "y": 20
+            },
+            "data": {
+              "label": "R1",
+              "instances": 1,
+              "allocated": 0
+            }
+          },
+          {
+            "id": "r2",
+            "type": "resource-square",
+            "position": {
+              "x": 40,
+              "y": 220
+            },
+            "data": {
+              "label": "R2",
+              "instances": 1,
+              "allocated": 0
+            }
+          },
+          {
+            "id": "p2",
+            "type": "state-node",
+            "position": {
+              "x": 400,
+              "y": 220
+            },
+            "data": {
+              "label": "P2",
+              "shape": "circle",
+              "fill": "#4f46e5"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "request-1",
+            "source": "p1",
+            "target": "r1",
+            "sourceHandle": "r",
+            "targetHandle": "l",
+            "type": "obo-edge",
+            "data": {
+              "label": "요청",
+              "direction": "forward",
+              "style": "dashed",
+              "role": "request",
+              "color": "#b45309"
+            }
+          },
+          {
+            "id": "own-1",
+            "source": "r1",
+            "target": "p1",
+            "sourceHandle": "l",
+            "targetHandle": "r",
+            "type": "obo-edge",
+            "data": {
+              "label": "할당",
+              "direction": "forward",
+              "style": "solid",
+              "role": "allocation",
+              "color": "#0f766e"
+            }
+          },
+          {
+            "id": "request-2",
+            "source": "p2",
+            "target": "r2",
+            "sourceHandle": "l",
+            "targetHandle": "r-s",
+            "type": "obo-edge",
+            "data": {
+              "label": "요청",
+              "direction": "forward",
+              "style": "dashed",
+              "role": "request",
+              "color": "#b45309"
+            }
+          },
+          {
+            "id": "own-2",
+            "source": "r2",
+            "target": "p2",
+            "sourceHandle": "r-s",
+            "targetHandle": "l",
+            "type": "obo-edge",
+            "data": {
+              "label": "할당",
+              "direction": "forward",
+              "style": "solid",
+              "role": "allocation",
+              "color": "#0f766e"
+            }
+          },
+          {
+            "id": "wait-1",
+            "source": "p1",
+            "target": "r2",
+            "sourceHandle": "b",
+            "targetHandle": "t-s",
+            "type": "obo-edge",
+            "data": {
+              "label": "요청",
+              "direction": "forward",
+              "style": "dashed",
+              "role": "request",
+              "color": "#b45309"
+            }
+          },
+          {
+            "id": "wait-2",
+            "source": "p2",
+            "target": "r1",
+            "sourceHandle": "t",
+            "targetHandle": "b",
+            "type": "obo-edge",
+            "data": {
+              "label": "요청",
+              "direction": "forward",
+              "style": "dashed",
+              "role": "request",
+              "color": "#b45309"
+            }
+          }
+        ],
+        "frames": [
+          {
+            "id": "rag-1",
+            "label": "시작 · R1과 R2는 각각 하나입니다. 아직 사용하는 프로세스가 없습니다.",
+            "visibleEdges": [],
+            "highlightNodes": [],
+            "highlightEdges": [],
+            "nodeDataOverrides": {
+              "r1": {
+                "allocated": 0
+              },
+              "r2": {
+                "allocated": 0
+              }
+            }
+          },
+          {
+            "id": "rag-2",
+            "label": "요청 · P1이 R1을 요청합니다. 점선은 “사용하고 싶다”는 뜻입니다.",
+            "visibleEdges": [
+              "request-1"
+            ],
+            "highlightNodes": [
+              "p1",
+              "r1"
+            ],
+            "highlightEdges": [
+              "request-1"
+            ],
+            "nodeDataOverrides": {
+              "r1": {
+                "allocated": 0
+              },
+              "r2": {
+                "allocated": 0
+              }
+            }
+          },
+          {
+            "id": "rag-3",
+            "label": "할당 · R1을 P1에게 줍니다. 요청선이 사라지고, 자원에서 프로세스로 실선이 향합니다.",
+            "visibleEdges": [
+              "own-1"
+            ],
+            "highlightNodes": [
+              "p1",
+              "r1"
+            ],
+            "highlightEdges": [
+              "own-1"
+            ],
+            "nodeDataOverrides": {
+              "r1": {
+                "allocated": 1
+              },
+              "r2": {
+                "allocated": 0
+              }
+            }
+          },
+          {
+            "id": "rag-4",
+            "label": "요청 · P1이 R1을 사용하는 동안, P2는 비어 있는 R2를 요청합니다.",
+            "visibleEdges": [
+              "own-1",
+              "request-2"
+            ],
+            "highlightNodes": [
+              "p2",
+              "r2"
+            ],
+            "highlightEdges": [
+              "request-2"
+            ],
+            "nodeDataOverrides": {
+              "r1": {
+                "allocated": 1
+              },
+              "r2": {
+                "allocated": 0
+              }
+            }
+          },
+          {
+            "id": "rag-5",
+            "label": "할당 · P1은 R1을, P2는 R2를 사용합니다. 아직 서로 기다리지 않습니다.",
+            "visibleEdges": [
+              "own-1",
+              "own-2"
+            ],
+            "highlightNodes": [
+              "p2",
+              "r2"
+            ],
+            "highlightEdges": [
+              "own-2"
+            ],
+            "nodeDataOverrides": {
+              "r1": {
+                "allocated": 1
+              },
+              "r2": {
+                "allocated": 1
+              }
+            }
+          },
+          {
+            "id": "rag-6",
+            "label": "대기 · P1은 R1을 가진 채 R2를 기다립니다. P2는 진행할 수 있어 아직 교착 상태는 아닙니다.",
+            "visibleEdges": [
+              "own-1",
+              "own-2",
+              "wait-1"
+            ],
+            "highlightNodes": [
+              "p1",
+              "r2"
+            ],
+            "highlightEdges": [
+              "wait-1"
+            ],
+            "nodeDataOverrides": {
+              "r1": {
+                "allocated": 1
+              },
+              "r2": {
+                "allocated": 1
+              }
+            }
+          },
+          {
+            "id": "rag-7",
+            "label": "교착 · P2도 R2를 가진 채 R1을 기다립니다. 서로 반납할 수 없어 둘 다 멈춥니다.\nP1 → R2 → P2 → R1 → P1",
+            "visibleEdges": [
+              "own-1",
+              "own-2",
+              "wait-1",
+              "wait-2"
+            ],
+            "highlightNodes": [
+              "p1",
+              "p2",
+              "r1",
+              "r2"
+            ],
+            "highlightEdges": [
+              "own-1",
+              "own-2",
+              "wait-1",
+              "wait-2"
+            ],
+            "nodeDataOverrides": {
+              "r1": {
+                "allocated": 1
+              },
+              "r2": {
+                "allocated": 1
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "C1",
+      "blob": {
+        "nodes": [
+          {
+            "id": "producer",
+            "type": "state-node",
+            "position": {
+              "x": 0,
+              "y": 120
+            },
+            "data": {
+              "label": "생산자",
+              "shape": "box",
+              "fill": "#4f46e5"
+            }
+          },
+          {
+            "id": "buffer",
+            "type": "queue-strip",
+            "position": {
+              "x": 230,
+              "y": 100
+            },
+            "data": {
+              "label": "공유 버퍼",
+              "capacity": 2,
+              "items": []
+            }
+          },
+          {
+            "id": "consumer",
+            "type": "state-node",
+            "position": {
+              "x": 600,
+              "y": 120
+            },
+            "data": {
+              "label": "소비자",
+              "shape": "box",
+              "fill": "#4f46e5"
+            }
+          },
+          {
+            "id": "empty",
+            "type": "counter-badge",
+            "position": {
+              "x": 240,
+              "y": 20
+            },
+            "data": {
+              "label": "empty",
+              "value": 2
+            }
+          },
+          {
+            "id": "full",
+            "type": "counter-badge",
+            "position": {
+              "x": 380,
+              "y": 20
+            },
+            "data": {
+              "label": "full",
+              "value": 0
+            }
+          },
+          {
+            "id": "p-status",
+            "type": "text-label",
+            "position": {
+              "x": 5,
+              "y": 230
+            },
+            "data": {
+              "text": "생산 가능",
+              "variant": "plain"
+            }
+          },
+          {
+            "id": "c-status",
+            "type": "text-label",
+            "position": {
+              "x": 600,
+              "y": 230
+            },
+            "data": {
+              "text": "항목 대기",
+              "variant": "plain"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "put",
+            "source": "producer",
+            "target": "buffer",
+            "sourceHandle": "r",
+            "targetHandle": "l",
+            "type": "obo-edge",
+            "data": {
+              "label": "넣기",
+              "direction": "forward",
+              "style": "solid",
+              "role": "transition"
+            }
+          },
+          {
+            "id": "take",
+            "source": "buffer",
+            "target": "consumer",
+            "sourceHandle": "r",
+            "targetHandle": "l",
+            "type": "obo-edge",
+            "data": {
+              "label": "꺼내기",
+              "direction": "forward",
+              "style": "solid",
+              "role": "transition"
+            }
+          }
+        ],
+        "frames": [
+          {
+            "id": "pc-0",
+            "label": "빈 버퍼 · 소비자는 꺼낼 항목이 없어 기다립니다. 생산자는 진행할 수 있습니다.",
+            "nodeDataOverrides": {
+              "buffer": {
+                "items": []
+              },
+              "empty": {
+                "value": 2
+              },
+              "full": {
+                "value": 0
+              },
+              "p-status": {
+                "text": "생산 가능"
+              },
+              "c-status": {
+                "text": "항목 대기"
+              }
+            },
+            "highlightNodes": [
+              "consumer"
+            ],
+            "highlightEdges": []
+          },
+          {
+            "id": "pc-1",
+            "label": "A 생산 · A를 넣고 소비자에게 알립니다. 소비자가 다시 진행할 수 있습니다.",
+            "nodeDataOverrides": {
+              "buffer": {
+                "items": [
+                  "A"
+                ]
+              },
+              "empty": {
+                "value": 1
+              },
+              "full": {
+                "value": 1
+              },
+              "p-status": {
+                "text": "생산 가능"
+              },
+              "c-status": {
+                "text": "소비 가능"
+              }
+            },
+            "highlightNodes": [
+              "buffer",
+              "producer"
+            ],
+            "highlightEdges": [
+              "put"
+            ]
+          },
+          {
+            "id": "pc-2",
+            "label": "A 소비 · 먼저 들어온 A를 꺼냅니다. 버퍼가 다시 비었습니다.",
+            "nodeDataOverrides": {
+              "buffer": {
+                "items": []
+              },
+              "empty": {
+                "value": 2
+              },
+              "full": {
+                "value": 0
+              },
+              "p-status": {
+                "text": "생산 가능"
+              },
+              "c-status": {
+                "text": "다음 소비는 대기"
+              }
+            },
+            "highlightNodes": [
+              "buffer",
+              "consumer"
+            ],
+            "highlightEdges": [
+              "take"
+            ]
+          },
+          {
+            "id": "pc-3",
+            "label": "B 생산 · 다음 항목 B가 들어옵니다. 아직 한 칸이 남았습니다.",
+            "nodeDataOverrides": {
+              "buffer": {
+                "items": [
+                  "B"
+                ]
+              },
+              "empty": {
+                "value": 1
+              },
+              "full": {
+                "value": 1
+              },
+              "p-status": {
+                "text": "생산 가능"
+              },
+              "c-status": {
+                "text": "소비 가능"
+              }
+            },
+            "highlightNodes": [
+              "buffer",
+              "producer"
+            ],
+            "highlightEdges": [
+              "put"
+            ]
+          },
+          {
+            "id": "pc-4",
+            "label": "C 생산 · B 다음에 C가 들어와 두 칸이 모두 찼습니다.",
+            "nodeDataOverrides": {
+              "buffer": {
+                "items": [
+                  "B",
+                  "C"
+                ]
+              },
+              "empty": {
+                "value": 0
+              },
+              "full": {
+                "value": 2
+              },
+              "p-status": {
+                "text": "다음 생산은 대기"
+              },
+              "c-status": {
+                "text": "소비 가능"
+              }
+            },
+            "highlightNodes": [
+              "buffer",
+              "producer"
+            ],
+            "highlightEdges": [
+              "put"
+            ]
+          },
+          {
+            "id": "pc-5",
+            "label": "생산 대기 · D를 넣으려 하지만 빈칸이 없습니다. 버퍼의 B, C는 그대로입니다.",
+            "nodeDataOverrides": {
+              "buffer": {
+                "items": [
+                  "B",
+                  "C"
+                ]
+              },
+              "empty": {
+                "value": 0
+              },
+              "full": {
+                "value": 2
+              },
+              "p-status": {
+                "text": "빈칸 대기"
+              },
+              "c-status": {
+                "text": "소비 가능"
+              }
+            },
+            "highlightNodes": [
+              "producer"
+            ],
+            "highlightEdges": []
+          },
+          {
+            "id": "pc-6",
+            "label": "B 소비 · 먼저 들어온 B를 꺼내 빈칸을 만듭니다. 기다리던 생산자가 진행할 수 있습니다.",
+            "nodeDataOverrides": {
+              "buffer": {
+                "items": [
+                  "C"
+                ]
+              },
+              "empty": {
+                "value": 1
+              },
+              "full": {
+                "value": 1
+              },
+              "p-status": {
+                "text": "생산 가능"
+              },
+              "c-status": {
+                "text": "소비 가능"
+              }
+            },
+            "highlightNodes": [
+              "buffer",
+              "consumer"
+            ],
+            "highlightEdges": [
+              "take"
+            ]
+          },
+          {
+            "id": "pc-7",
+            "label": "생산 재개 · 남은 C 뒤에 D를 넣습니다. 다음에 꺼낼 항목은 C입니다.",
+            "nodeDataOverrides": {
+              "buffer": {
+                "items": [
+                  "C",
+                  "D"
+                ]
+              },
+              "empty": {
+                "value": 0
+              },
+              "full": {
+                "value": 2
+              },
+              "p-status": {
+                "text": "생산 완료"
+              },
+              "c-status": {
+                "text": "소비 가능"
+              }
+            },
+            "highlightNodes": [
+              "buffer",
+              "producer"
+            ],
+            "highlightEdges": [
+              "put"
+            ]
+          },
+          {
+            "id": "pc-8",
+            "label": "C 소비 · 들어온 순서대로 C를 꺼냅니다. D 하나가 남습니다.",
+            "nodeDataOverrides": {
+              "buffer": {
+                "items": [
+                  "D"
+                ]
+              },
+              "empty": {
+                "value": 1
+              },
+              "full": {
+                "value": 1
+              },
+              "p-status": {
+                "text": "생산 완료"
+              },
+              "c-status": {
+                "text": "소비 가능"
+              }
+            },
+            "highlightNodes": [
+              "buffer",
+              "consumer"
+            ],
+            "highlightEdges": [
+              "take"
+            ]
+          },
+          {
+            "id": "pc-9",
+            "label": "D 소비 · 마지막 항목을 꺼냈습니다. 이 예제의 생산·소비가 끝났습니다.",
+            "nodeDataOverrides": {
+              "buffer": {
+                "items": []
+              },
+              "empty": {
+                "value": 2
+              },
+              "full": {
+                "value": 0
+              },
+              "p-status": {
+                "text": "생산 완료"
+              },
+              "c-status": {
+                "text": "소비 완료"
+              }
+            },
+            "highlightNodes": [
+              "buffer",
+              "consumer"
+            ],
+            "highlightEdges": [
+              "take"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "TLB",
+      "blob": {
+        "nodes": [
+          {
+            "id": "address",
+            "type": "table-grid",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "data": {
+              "label": "가상 주소 나누기",
+              "headers": [
+                "가상 주소",
+                "VPN",
+                "내부 위치"
+              ],
+              "rows": [
+                [
+                  9,
+                  2,
+                  1
+                ]
+              ],
+              "width": 300
+            }
+          },
+          {
+            "id": "physical",
+            "type": "state-node",
+            "position": {
+              "x": 390,
+              "y": 15
+            },
+            "data": {
+              "label": "물리 주소 · 아직 없음",
+              "shape": "box",
+              "fill": "#4f46e5"
+            }
+          },
+          {
+            "id": "tlb",
+            "type": "table-grid",
+            "position": {
+              "x": 0,
+              "y": 170
+            },
+            "data": {
+              "label": "TLB · 변환 기록",
+              "headers": [
+                "VPN",
+                "PFN"
+              ],
+              "rows": [
+                [
+                  0,
+                  1
+                ],
+                [
+                  "—",
+                  "—"
+                ]
+              ],
+              "width": 280,
+              "activeRow": null
+            }
+          },
+          {
+            "id": "pages",
+            "type": "table-grid",
+            "position": {
+              "x": 390,
+              "y": 170
+            },
+            "data": {
+              "label": "페이지 표",
+              "headers": [
+                "VPN",
+                "PFN",
+                "메모리 상주"
+              ],
+              "rows": [
+                [
+                  0,
+                  1,
+                  "있음"
+                ],
+                [
+                  2,
+                  5,
+                  "있음"
+                ],
+                [
+                  3,
+                  "—",
+                  "없음"
+                ]
+              ],
+              "width": 300,
+              "activeRow": null
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "lookup",
+            "source": "address",
+            "target": "tlb",
+            "sourceHandle": "b",
+            "targetHandle": "t",
+            "type": "obo-edge",
+            "data": {
+              "label": "조회",
+              "direction": "forward",
+              "style": "solid",
+              "role": "transition"
+            }
+          },
+          {
+            "id": "miss",
+            "source": "tlb",
+            "target": "pages",
+            "sourceHandle": "r",
+            "targetHandle": "l",
+            "type": "obo-edge",
+            "data": {
+              "label": "MISS",
+              "direction": "forward",
+              "style": "solid",
+              "role": "transition"
+            }
+          },
+          {
+            "id": "translate",
+            "source": "pages",
+            "target": "physical",
+            "sourceHandle": "t",
+            "targetHandle": "b",
+            "type": "obo-edge",
+            "data": {
+              "label": "변환",
+              "direction": "forward",
+              "style": "solid",
+              "role": "transition"
+            }
+          },
+          {
+            "id": "hit",
+            "source": "tlb",
+            "target": "physical",
+            "sourceHandle": "r",
+            "targetHandle": "l",
+            "type": "obo-edge",
+            "data": {
+              "label": "HIT",
+              "direction": "forward",
+              "style": "solid",
+              "role": "transition"
+            }
+          }
+        ],
+        "frames": [
+          {
+            "id": "tlb-0",
+            "label": "주소 분해 · 9 = 2 × 4 + 1입니다. 페이지 2의 안쪽 위치 1을 찾습니다.",
+            "nodeDataOverrides": {},
+            "highlightNodes": [
+              "address"
+            ],
+            "highlightEdges": [],
+            "visibleEdges": []
+          },
+          {
+            "id": "tlb-1",
+            "label": "TLB MISS · 페이지 2의 기록이 없습니다. 페이지 표를 확인해야 합니다.",
+            "nodeDataOverrides": {
+              "tlb": {
+                "activeRow": null
+              }
+            },
+            "highlightNodes": [
+              "tlb"
+            ],
+            "highlightEdges": [
+              "lookup"
+            ],
+            "visibleEdges": [
+              "lookup"
+            ]
+          },
+          {
+            "id": "tlb-2",
+            "label": "페이지 표 확인 · 페이지 2는 프레임 5에 이미 있습니다. 페이지 부재가 아닙니다.",
+            "nodeDataOverrides": {
+              "pages": {
+                "activeRow": 1
+              }
+            },
+            "highlightNodes": [
+              "pages"
+            ],
+            "highlightEdges": [
+              "miss"
+            ],
+            "visibleEdges": [
+              "lookup",
+              "miss"
+            ]
+          },
+          {
+            "id": "tlb-3",
+            "label": "주소 변환 · 프레임 5 × 페이지 크기 4 + 내부 위치 1 = 물리 주소 21입니다.",
+            "nodeDataOverrides": {
+              "physical": {
+                "label": "물리 주소 21"
+              }
+            },
+            "highlightNodes": [
+              "physical"
+            ],
+            "highlightEdges": [
+              "translate"
+            ],
+            "visibleEdges": [
+              "lookup",
+              "miss",
+              "translate"
+            ]
+          },
+          {
+            "id": "tlb-4",
+            "label": "기록 보관 · 다음 접근을 위해 페이지 2 → 프레임 5를 TLB에 넣습니다.",
+            "nodeDataOverrides": {
+              "tlb": {
+                "rows": [
+                  [
+                    0,
+                    1
+                  ],
+                  [
+                    2,
+                    5
+                  ]
+                ],
+                "activeRow": 1
+              },
+              "pages": {
+                "activeRow": null
+              }
+            },
+            "highlightNodes": [
+              "tlb"
+            ],
+            "highlightEdges": [],
+            "visibleEdges": [
+              "lookup",
+              "miss",
+              "translate"
+            ]
+          },
+          {
+            "id": "tlb-5",
+            "label": "다음 주소 · 10 = 2 × 4 + 2입니다. 같은 페이지의 다른 위치를 찾습니다.",
+            "nodeDataOverrides": {
+              "address": {
+                "rows": [
+                  [
+                    10,
+                    2,
+                    2
+                  ]
+                ]
+              },
+              "physical": {
+                "label": "물리 주소 · 조회 중"
+              },
+              "tlb": {
+                "activeRow": null
+              }
+            },
+            "highlightNodes": [
+              "address"
+            ],
+            "highlightEdges": [
+              "lookup"
+            ],
+            "visibleEdges": [
+              "lookup"
+            ]
+          },
+          {
+            "id": "tlb-6",
+            "label": "TLB HIT · 2 → 5 기록으로 바로 변환합니다. 5 × 4 + 2 = 물리 주소 22입니다.",
+            "nodeDataOverrides": {
+              "tlb": {
+                "activeRow": 1
+              },
+              "physical": {
+                "label": "물리 주소 22"
+              }
+            },
+            "highlightNodes": [
+              "tlb",
+              "physical"
+            ],
+            "highlightEdges": [
+              "hit"
+            ],
+            "visibleEdges": [
+              "lookup",
+              "hit"
+            ]
+          },
+          {
+            "id": "tlb-7",
+            "label": "페이지 부재 · 주소 12의 페이지 3은 TLB에도, 현재 메모리에도 없습니다. 적재 전에는 물리 주소를 만들 수 없습니다.",
+            "nodeDataOverrides": {
+              "address": {
+                "rows": [
+                  [
+                    12,
+                    3,
+                    0
+                  ]
+                ]
+              },
+              "tlb": {
+                "activeRow": null
+              },
+              "pages": {
+                "activeRow": 2
+              },
+              "physical": {
+                "label": "페이지 부재 · 적재 필요"
+              }
+            },
+            "highlightNodes": [
+              "pages"
+            ],
+            "highlightEdges": [
+              "miss"
+            ],
+            "visibleEdges": [
+              "lookup",
+              "miss"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "MF",
+      "blob": {
+        "nodes": [
+          {
+            "id": "memory",
+            "type": "memory-range",
+            "position": {
+              "x": 0,
+              "y": 75
+            },
+            "data": {
+              "label": "메모리 · 주소 0 이상 16 미만",
+              "start": 0,
+              "size": 16,
+              "segments": [
+                {
+                  "id": "a",
+                  "start": 0,
+                  "size": 4,
+                  "label": "A"
+                },
+                {
+                  "id": "hole1",
+                  "start": 4,
+                  "size": 3,
+                  "label": "빈 공간",
+                  "free": true
+                },
+                {
+                  "id": "b",
+                  "start": 7,
+                  "size": 4,
+                  "label": "B"
+                },
+                {
+                  "id": "hole2",
+                  "start": 11,
+                  "size": 3,
+                  "label": "빈 공간",
+                  "free": true
+                },
+                {
+                  "id": "c",
+                  "start": 14,
+                  "size": 2,
+                  "label": "C"
+                }
+              ],
+              "activeIds": []
+            }
+          },
+          {
+            "id": "request",
+            "type": "state-node",
+            "position": {
+              "x": 0,
+              "y": -30
+            },
+            "data": {
+              "label": "요청 D · 연속 5칸",
+              "shape": "box",
+              "fill": "#4f46e5"
+            }
+          },
+          {
+            "id": "result",
+            "type": "text-label",
+            "position": {
+              "x": 270,
+              "y": -5
+            },
+            "data": {
+              "text": "여유 공간을 확인합니다.",
+              "variant": "plain"
+            }
+          }
+        ],
+        "edges": [],
+        "frames": [
+          {
+            "id": "mf-0",
+            "label": "초기 배치 · A와 B, C 사이에 3칸짜리 빈 공간이 두 곳 있습니다.",
+            "nodeDataOverrides": {},
+            "highlightNodes": [
+              "memory"
+            ],
+            "highlightEdges": []
+          },
+          {
+            "id": "mf-1",
+            "label": "요청 D · 총 빈 공간은 3 + 3 = 6칸입니다. 하지만 가장 큰 한 덩어리는 3칸입니다.",
+            "nodeDataOverrides": {
+              "memory": {
+                "activeIds": [
+                  "hole1",
+                  "hole2"
+                ]
+              },
+              "result": {
+                "text": "총 여유 6칸 · 최대 연속 3칸"
+              }
+            },
+            "highlightNodes": [
+              "request",
+              "memory"
+            ],
+            "highlightEdges": []
+          },
+          {
+            "id": "mf-2",
+            "label": "할당 실패 · D는 연속 5칸이 필요합니다. 떨어진 3칸 두 개를 이어 줄 수 없습니다.",
+            "nodeDataOverrides": {
+              "result": {
+                "text": "실패 · 연속된 5칸이 없습니다."
+              }
+            },
+            "highlightNodes": [
+              "request"
+            ],
+            "highlightEdges": []
+          },
+          {
+            "id": "mf-3",
+            "label": "B 해제 · B의 4칸을 반환하면 인접한 빈 공간 3 + 4 + 3을 10칸으로 합칠 수 있습니다.",
+            "nodeDataOverrides": {
+              "memory": {
+                "segments": [
+                  {
+                    "id": "a",
+                    "start": 0,
+                    "size": 4,
+                    "label": "A"
+                  },
+                  {
+                    "id": "hole",
+                    "start": 4,
+                    "size": 10,
+                    "label": "빈 공간",
+                    "free": true
+                  },
+                  {
+                    "id": "c",
+                    "start": 14,
+                    "size": 2,
+                    "label": "C"
+                  }
+                ],
+                "activeIds": [
+                  "hole"
+                ]
+              },
+              "result": {
+                "text": "인접 여유 병합 · 연속 10칸"
+              }
+            },
+            "highlightNodes": [
+              "memory"
+            ],
+            "highlightEdges": []
+          },
+          {
+            "id": "mf-4",
+            "label": "D 할당 · 주소 4부터 9 직전까지 5칸을 줍니다. 뒤에는 연속 5칸이 남습니다.",
+            "nodeDataOverrides": {
+              "memory": {
+                "segments": [
+                  {
+                    "id": "a",
+                    "start": 0,
+                    "size": 4,
+                    "label": "A"
+                  },
+                  {
+                    "id": "d",
+                    "start": 4,
+                    "size": 5,
+                    "label": "D"
+                  },
+                  {
+                    "id": "hole",
+                    "start": 9,
+                    "size": 5,
+                    "label": "빈 공간",
+                    "free": true
+                  },
+                  {
+                    "id": "c",
+                    "start": 14,
+                    "size": 2,
+                    "label": "C"
+                  }
+                ],
+                "activeIds": [
+                  "d"
+                ]
+              },
+              "result": {
+                "text": "성공 · D는 [4, 9) 사용"
+              }
+            },
+            "highlightNodes": [
+              "memory"
+            ],
+            "highlightEdges": []
+          },
+          {
+            "id": "mf-5",
+            "label": "완료 · 총 여유 5칸과 최대 연속 공간 5칸이 같습니다. A와 C의 위치는 그대로입니다.",
+            "nodeDataOverrides": {
+              "memory": {
+                "activeIds": []
+              },
+              "result": {
+                "text": "남은 연속 여유 · [9, 14)"
+              }
+            },
+            "highlightNodes": [],
+            "highlightEdges": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "PT",
+      "blob": {
+        "nodes": [
+          {
+            "id": "p1",
+            "type": "process-box",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "data": {
+              "label": "프로세스 P1",
+              "sections": [
+                {
+                  "name": "코드",
+                  "value": "공통 함수",
+                  "shared": true
+                },
+                {
+                  "name": "데이터",
+                  "value": "x = 0",
+                  "shared": true
+                },
+                {
+                  "name": "힙",
+                  "value": "공유 객체",
+                  "shared": true
+                }
+              ],
+              "threads": [
+                {
+                  "id": "t1",
+                  "label": "T1",
+                  "pc": "x 쓰기",
+                  "register": "0",
+                  "stack": "지역값 0"
+                },
+                {
+                  "id": "t2",
+                  "label": "T2",
+                  "pc": "x 읽기",
+                  "register": "0",
+                  "stack": "지역값 9"
+                }
+              ],
+              "activeThreadId": null
+            }
+          },
+          {
+            "id": "p2",
+            "type": "process-box",
+            "position": {
+              "x": 410,
+              "y": 0
+            },
+            "data": {
+              "label": "프로세스 P2",
+              "sections": [
+                {
+                  "name": "코드",
+                  "value": "공통 함수",
+                  "shared": true
+                },
+                {
+                  "name": "데이터",
+                  "value": "x = 0",
+                  "shared": true
+                },
+                {
+                  "name": "힙",
+                  "value": "공유 객체",
+                  "shared": true
+                }
+              ],
+              "threads": [
+                {
+                  "id": "t3",
+                  "label": "T3",
+                  "pc": "대기",
+                  "register": "0",
+                  "stack": "지역값 4"
+                }
+              ],
+              "activeThreadId": null
+            }
+          }
+        ],
+        "edges": [],
+        "frames": [
+          {
+            "id": "pt-0",
+            "label": "처음 · P1의 T1과 T2는 같은 주소 공간을 사용합니다. P2는 별도의 주소 공간입니다.",
+            "nodeDataOverrides": {},
+            "highlightNodes": [],
+            "highlightEdges": []
+          },
+          {
+            "id": "pt-1",
+            "label": "T1 실행 · 공유 데이터 x를 1로 바꾸고, 자기 스택의 지역값을 7로 바꿉니다.",
+            "nodeDataOverrides": {
+              "p1": {
+                "sections": [
+                  {
+                    "name": "코드",
+                    "value": "공통 함수",
+                    "shared": true
+                  },
+                  {
+                    "name": "데이터",
+                    "value": "x = 1",
+                    "shared": true
+                  },
+                  {
+                    "name": "힙",
+                    "value": "공유 객체",
+                    "shared": true
+                  }
+                ],
+                "threads": [
+                  {
+                    "id": "t1",
+                    "label": "T1",
+                    "pc": "다음 명령",
+                    "register": "1",
+                    "stack": "지역값 7"
+                  },
+                  {
+                    "id": "t2",
+                    "label": "T2",
+                    "pc": "x 읽기",
+                    "register": "0",
+                    "stack": "지역값 9"
+                  }
+                ],
+                "activeThreadId": "t1"
+              }
+            },
+            "highlightNodes": [
+              "p1"
+            ],
+            "highlightEdges": []
+          },
+          {
+            "id": "pt-2",
+            "label": "T2 실행 · 같은 x를 읽으므로 1을 얻습니다. T2의 스택 지역값 9는 그대로입니다.",
+            "nodeDataOverrides": {
+              "p1": {
+                "threads": [
+                  {
+                    "id": "t1",
+                    "label": "T1",
+                    "pc": "다음 명령",
+                    "register": "1",
+                    "stack": "지역값 7"
+                  },
+                  {
+                    "id": "t2",
+                    "label": "T2",
+                    "pc": "읽기 완료",
+                    "register": "1",
+                    "stack": "지역값 9"
+                  }
+                ],
+                "activeThreadId": "t2"
+              }
+            },
+            "highlightNodes": [
+              "p1"
+            ],
+            "highlightEdges": []
+          },
+          {
+            "id": "pt-3",
+            "label": "P2 확인 · 이름이 같은 x라도 다른 프로세스의 데이터입니다. P2의 x는 여전히 0입니다.",
+            "nodeDataOverrides": {
+              "p1": {
+                "activeThreadId": null
+              },
+              "p2": {
+                "activeThreadId": "t3"
+              }
+            },
+            "highlightNodes": [
+              "p2"
+            ],
+            "highlightEdges": []
+          },
+          {
+            "id": "pt-4",
+            "label": "비교 완료 · P1 내부의 데이터는 공유되고, 각 스레드의 실행 위치와 레지스터·스택은 따로 유지됩니다.",
+            "nodeDataOverrides": {
+              "p1": {
+                "activeThreadId": null
+              },
+              "p2": {
+                "activeThreadId": null
+              }
+            },
+            "highlightNodes": [
+              "p1",
+              "p2"
+            ],
+            "highlightEdges": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "IN",
+      "blob": {
+        "nodes": [
+          {
+            "id": "name-a",
+            "type": "state-node",
+            "position": {
+              "x": 0,
+              "y": 20
+            },
+            "data": {
+              "label": "a.txt",
+              "shape": "box",
+              "fill": "#4f46e5"
+            }
+          },
+          {
+            "id": "name-b",
+            "type": "state-node",
+            "position": {
+              "x": 0,
+              "y": 190
+            },
+            "data": {
+              "label": "b.txt",
+              "shape": "box",
+              "fill": "#4f46e5"
+            }
+          },
+          {
+            "id": "inode",
+            "type": "state-node",
+            "position": {
+              "x": 300,
+              "y": 100
+            },
+            "data": {
+              "label": "inode 42",
+              "shape": "box",
+              "fill": "#4f46e5"
+            }
+          },
+          {
+            "id": "block",
+            "type": "state-node",
+            "position": {
+              "x": 590,
+              "y": 100
+            },
+            "data": {
+              "label": "블록 7 · Hello",
+              "shape": "box",
+              "fill": "#4f46e5"
+            }
+          },
+          {
+            "id": "links",
+            "type": "counter-badge",
+            "position": {
+              "x": 300,
+              "y": 225
+            },
+            "data": {
+              "label": "하드 링크 수",
+              "value": 2
+            }
+          },
+          {
+            "id": "directory",
+            "type": "text-label",
+            "position": {
+              "x": 0,
+              "y": -35
+            },
+            "data": {
+              "text": "디렉터리의 파일 이름",
+              "variant": "plain"
+            }
+          },
+          {
+            "id": "content",
+            "type": "text-label",
+            "position": {
+              "x": 590,
+              "y": 225
+            },
+            "data": {
+              "text": "파일 내용은 한 벌입니다.",
+              "variant": "plain"
+            }
+          }
+        ],
+        "edges": [
+          {
+            "id": "a-inode",
+            "source": "name-a",
+            "target": "inode",
+            "sourceHandle": "r",
+            "targetHandle": "l",
+            "type": "obo-edge",
+            "data": {
+              "label": "42",
+              "direction": "forward",
+              "style": "solid",
+              "role": "transition"
+            }
+          },
+          {
+            "id": "b-inode",
+            "source": "name-b",
+            "target": "inode",
+            "sourceHandle": "r",
+            "targetHandle": "l",
+            "type": "obo-edge",
+            "data": {
+              "label": "42",
+              "direction": "forward",
+              "style": "solid",
+              "role": "transition"
+            }
+          },
+          {
+            "id": "inode-block",
+            "source": "inode",
+            "target": "block",
+            "sourceHandle": "r",
+            "targetHandle": "l",
+            "type": "obo-edge",
+            "data": {
+              "label": "직접 포인터",
+              "direction": "forward",
+              "style": "solid",
+              "role": "transition"
+            }
+          }
+        ],
+        "frames": [
+          {
+            "id": "in-0",
+            "label": "두 이름 · a.txt와 b.txt가 같은 inode 번호 42를 가리킵니다.",
+            "nodeDataOverrides": {},
+            "highlightNodes": [
+              "name-a",
+              "name-b"
+            ],
+            "highlightEdges": []
+          },
+          {
+            "id": "in-1",
+            "label": "이름 조회 · a.txt의 디렉터리 항목에서 inode 번호 42를 찾습니다.",
+            "nodeDataOverrides": {},
+            "highlightNodes": [
+              "name-a",
+              "inode"
+            ],
+            "highlightEdges": [
+              "a-inode"
+            ]
+          },
+          {
+            "id": "in-2",
+            "label": "내용 읽기 · inode 42의 직접 포인터를 따라 데이터 블록 7의 Hello를 읽습니다.",
+            "nodeDataOverrides": {},
+            "highlightNodes": [
+              "inode",
+              "block"
+            ],
+            "highlightEdges": [
+              "inode-block"
+            ]
+          },
+          {
+            "id": "in-3",
+            "label": "다른 이름 · b.txt를 찾아도 같은 inode 42로 갑니다.",
+            "nodeDataOverrides": {},
+            "highlightNodes": [
+              "name-b",
+              "inode"
+            ],
+            "highlightEdges": [
+              "b-inode"
+            ]
+          },
+          {
+            "id": "in-4",
+            "label": "같은 내용 · 같은 데이터 블록 7을 읽습니다. 파일 내용을 복사한 것이 아닙니다.",
+            "nodeDataOverrides": {},
+            "highlightNodes": [
+              "block"
+            ],
+            "highlightEdges": [
+              "b-inode",
+              "inode-block"
+            ]
+          },
+          {
+            "id": "in-5",
+            "label": "이름 하나 삭제 · a.txt 항목을 제거하면 하드 링크 수가 2에서 1로 줄어듭니다.",
+            "nodeDataOverrides": {
+              "name-a": {
+                "label": "a.txt · 삭제됨"
+              },
+              "links": {
+                "value": 1
+              }
+            },
+            "highlightNodes": [
+              "name-a"
+            ],
+            "highlightEdges": [],
+            "visibleEdges": [
+              "b-inode",
+              "inode-block"
+            ]
+          },
+          {
+            "id": "in-6",
+            "label": "남은 이름 · b.txt가 inode를 계속 가리키므로 내용은 남아 있고 다시 읽을 수 있습니다.",
+            "nodeDataOverrides": {},
+            "highlightNodes": [
+              "name-b",
+              "block"
+            ],
+            "highlightEdges": [
+              "b-inode",
+              "inode-block"
+            ],
+            "visibleEdges": [
+              "b-inode",
+              "inode-block"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "DS",
+      "blob": {
+        "nodes": [
+          {
+            "id": "path",
+            "type": "line-chart",
+            "position": {
+              "x": 0,
+              "y": 0
+            },
+            "data": {
+              "label": "FCFS 헤드 이동",
+              "width": 580,
+              "height": 270,
+              "xLabel": "처리 순서",
+              "yLabel": "실린더",
+              "xMin": 0,
+              "xMax": 3,
+              "yMin": 0,
+              "yMax": 100,
+              "xTicks": [
+                0,
+                1,
+                2,
+                3
+              ],
+              "yTicks": [
+                0,
+                20,
+                40,
+                60,
+                80,
+                100
+              ],
+              "series": [
+                {
+                  "name": "FCFS",
+                  "color": "#0f766e",
+                  "points": [
+                    {
+                      "x": 0,
+                      "y": 50
+                    },
+                    {
+                      "x": 1,
+                      "y": 20
+                    },
+                    {
+                      "x": 2,
+                      "y": 80
+                    },
+                    {
+                      "x": 3,
+                      "y": 30
+                    }
+                  ]
+                }
+              ],
+              "progressIndex": 0,
+              "activePointIndex": 0
+            }
+          },
+          {
+            "id": "moves",
+            "type": "table-grid",
+            "position": {
+              "x": 660,
+              "y": 0
+            },
+            "data": {
+              "label": "처리 기록",
+              "headers": [
+                "이동",
+                "거리"
+              ],
+              "rows": [
+                [
+                  "50 → 20",
+                  "대기"
+                ],
+                [
+                  "20 → 80",
+                  "대기"
+                ],
+                [
+                  "80 → 30",
+                  "대기"
+                ]
+              ],
+              "width": 220,
+              "activeRow": null
+            }
+          },
+          {
+            "id": "distance",
+            "type": "counter-badge",
+            "position": {
+              "x": 660,
+              "y": 235
+            },
+            "data": {
+              "label": "누적 이동",
+              "value": 0
+            }
+          }
+        ],
+        "edges": [],
+        "frames": [
+          {
+            "id": "ds-0",
+            "label": "시작 · 헤드는 실린더 50에 있습니다. 아직 처리한 요청과 이동 거리는 없습니다.",
+            "nodeDataOverrides": {},
+            "highlightNodes": [],
+            "highlightEdges": []
+          },
+          {
+            "id": "ds-1",
+            "label": "첫 요청 20 · |20 − 50| = 30만큼 이동했습니다. 누적 거리는 30입니다.",
+            "nodeDataOverrides": {
+              "path": {
+                "progressIndex": 1,
+                "activePointIndex": 1
+              },
+              "moves": {
+                "rows": [
+                  [
+                    "50 → 20",
+                    30
+                  ],
+                  [
+                    "20 → 80",
+                    "대기"
+                  ],
+                  [
+                    "80 → 30",
+                    "대기"
+                  ]
+                ],
+                "activeRow": 0
+              },
+              "distance": {
+                "value": 30
+              }
+            },
+            "highlightNodes": [],
+            "highlightEdges": []
+          },
+          {
+            "id": "ds-2",
+            "label": "다음 요청 80 · 방향을 바꾸어 60만큼 이동합니다. 누적 거리는 30 + 60 = 90입니다.",
+            "nodeDataOverrides": {
+              "path": {
+                "progressIndex": 2,
+                "activePointIndex": 2
+              },
+              "moves": {
+                "rows": [
+                  [
+                    "50 → 20",
+                    30
+                  ],
+                  [
+                    "20 → 80",
+                    60
+                  ],
+                  [
+                    "80 → 30",
+                    "대기"
+                  ]
+                ],
+                "activeRow": 1
+              },
+              "distance": {
+                "value": 90
+              }
+            },
+            "highlightNodes": [],
+            "highlightEdges": []
+          },
+          {
+            "id": "ds-3",
+            "label": "마지막 요청 30 · 다시 50만큼 이동합니다. 총 이동 거리는 30 + 60 + 50 = 140입니다.",
+            "nodeDataOverrides": {
+              "path": {
+                "progressIndex": 3,
+                "activePointIndex": 3
+              },
+              "moves": {
+                "rows": [
+                  [
+                    "50 → 20",
+                    30
+                  ],
+                  [
+                    "20 → 80",
+                    60
+                  ],
+                  [
+                    "80 → 30",
+                    50
+                  ]
+                ],
+                "activeRow": 2
+              },
+              "distance": {
+                "value": 140
+              }
+            },
+            "highlightNodes": [],
+            "highlightEdges": []
+          },
+          {
+            "id": "ds-4",
+            "label": "처리 완료 · 요청 순서가 바뀌면 이동 거리도 달라질 수 있습니다. 이 FCFS 예제는 140입니다.",
+            "nodeDataOverrides": {
+              "path": {
+                "activePointIndex": -1
+              },
+              "moves": {
+                "activeRow": null
+              }
+            },
+            "highlightNodes": [],
+            "highlightEdges": []
+          }
+        ]
+      }
+    }
+  ],
+  "defaults": {
+    "state-node": {
+      "label": "State",
+      "shape": "circle",
+      "fill": "#6366f1"
+    },
+    "resource-square": {
+      "label": "R1",
+      "instances": 2,
+      "allocated": 1
+    },
+    "queue-strip": {
+      "label": "버퍼",
+      "capacity": 3,
+      "items": [
+        "A"
+      ],
+      "direction": "ltr"
+    },
+    "table-grid": {
+      "label": "표",
+      "headers": [
+        "이름",
+        "값"
+      ],
+      "rows": [
+        [
+          "A",
+          0
+        ]
+      ],
+      "width": 300,
+      "activeRow": null
+    },
+    "memory-range": {
+      "label": "메모리",
+      "start": 0,
+      "size": 16,
+      "segments": [
+        {
+          "id": "region-1",
+          "start": 0,
+          "size": 8,
+          "label": "A"
+        },
+        {
+          "id": "region-2",
+          "start": 8,
+          "size": 8,
+          "label": "빈 공간",
+          "free": true
+        }
+      ],
+      "activeIds": []
+    },
+    "process-box": {
+      "label": "프로세스",
+      "sections": [
+        {
+          "name": "데이터",
+          "value": "x = 0",
+          "shared": true
+        }
+      ],
+      "threads": [
+        {
+          "id": "thread-1",
+          "label": "T1",
+          "pc": "시작",
+          "register": "0",
+          "stack": "지역값 0"
+        }
+      ],
+      "activeThreadId": null
+    },
+    "slot-grid": {
+      "label": "칸",
+      "pointerLabel": "다음",
+      "slotCount": 4,
+      "slots": [
+        null,
+        null,
+        null,
+        null
+      ],
+      "faultSlotIndex": null,
+      "hitSlotIndex": null
+    },
+    "gantt-lane": {
+      "trackId": "P1",
+      "blocks": [],
+      "activeBlockIndex": null,
+      "ganttGroup": "기본 간트"
+    },
+    "counter-badge": {
+      "label": "Counter",
+      "min": 0,
+      "max": 10,
+      "value": 0,
+      "delta": null
+    },
+    "line-chart": {
+      "label": "Chart",
+      "xLabel": "프레임 수",
+      "yLabel": "페이지 폴트",
+      "series": [
+        {
+          "name": "FIFO",
+          "points": [
+            {
+              "x": 1,
+              "y": 4
+            },
+            {
+              "x": 2,
+              "y": 3
+            },
+            {
+              "x": 3,
+              "y": 4
+            },
+            {
+              "x": 4,
+              "y": 5
+            },
+            {
+              "x": 5,
+              "y": 4
+            }
+          ],
+          "color": "#6366f1"
+        }
+      ]
+    },
+    "text-label": {
+      "text": "Label",
+      "variant": "plain",
+      "color": "#334155"
+    }
+  }
+}

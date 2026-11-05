@@ -1,5 +1,12 @@
 # VPC Endpoint → NAT Instance 전환 가이드
 
+> 2026-11-04: 아래 내용은 과거 전환 이력이다. 기존 NAT를 재사용하는 현재 구성은
+> [실행기 NAT 계약](../grader/runner/NAT_NETWORK.md)과 해당 network.nat.json을 따른다.
+> 아래의 VM 재생성·기존 endpoint 삭제 명령을 다시 실행하지 않는다.
+> 과거 월 $3.8/중지 시 비용0 표기는 현재 견적으로 사용하지 않는다. 서울 t3.nano는
+> 조회 단가 $0.0065/h이며 디스크·공인 IPv4·트래픽·CPU credit 비용은 별도다.
+> 중지 중에도 디스크 및 보존된 EIP 과금은 지속될 수 있다.
+
 ## 배경 및 목적
 
 기존에 Fargate용으로 생성한 VPC Interface Endpoint 3개가 월 **$21** 비용 발생.

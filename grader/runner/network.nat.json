@@ -1,0 +1,16 @@
+{
+  "region": "ap-northeast-2",
+  "account": "290373175858",
+  "vpc_id": "vpc-059c175e86a99bd3b",
+  "nat_instance_id": "i-08761f745077023e3",
+  "nat_network_interface_id": "eni-0795de4b87a66e505",
+  "nat_security_group_id": "sg-0e0cd2fa3b38ea16b",
+  "runner_subnet_id": "subnet-0be69dddc834ac079",
+  "runner_security_group_id": "sg-0bf39d8353ce4577b",
+  "runner_network_acl_id": "acl-0cd063873dfbf8fc0",
+  "runner_route_table_id": "rtb-0a9fcf0489393875c",
+  "s3_gateway_endpoint_id": "vpce-00e4d5879e9739088",
+  "assign_public_ip": "DISABLED",
+  "paid_interface_endpoints": [],
+  "production_ready": false
+}

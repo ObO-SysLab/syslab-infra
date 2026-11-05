@@ -46,7 +46,9 @@ def validate_definition(definition, pinned_arn):
         raise ExecutionFailure('Runner capability reduction is missing')
     if c.get('mountPoints') != [{'sourceVolume': 'work', 'containerPath': '/work', 'readOnly': False}]:
         raise ExecutionFailure('Unexpected runner mount')
-    if definition.get('volumes') != [{'name': 'work'}]:
+    # ECS DescribeTaskDefinition normalizes a task-local bind volume to host={}.
+    # Accept only that exact empty form; sourcePath/EFS/extra volumes remain denied.
+    if definition.get('volumes') not in ([{'name': 'work'}], [{'name': 'work', 'host': {}}]):
         raise ExecutionFailure('Runner cannot mount shared storage')
 
 

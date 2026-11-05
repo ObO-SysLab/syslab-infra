@@ -20,7 +20,7 @@ class ScoreConsistencyTest(unittest.TestCase):
     def test_correct_result_registers_from_stored_submission_identity(self):
         self.scope['update_solved_count'](self.conn, True)
         sql, params = self.conn.cursor.return_value.__enter__.return_value.execute.call_args.args
-        self.assertIn('SELECT prob_id, user_id FROM solve_submission', sql)
+        self.assertIn('SELECT prob_id, submitter_id FROM solve_submission', sql)
         self.assertIn('ON CONFLICT (prob_id, user_id) DO NOTHING', sql)
         self.assertEqual(params, ('101', '2', '2'))
 

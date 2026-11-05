@@ -1,7 +1,10 @@
 # DiveOn grading coordinator and isolated runner
 
-AUDIT-01, linked AUDIT-09: local implementation and tests, **not deployed**.
-Fargate compatibility, IAM/network policy and full submission integration remain unverified.
+AUDIT-01, linked AUDIT-09: production grading rollout is **not complete**.
+2026-11-04: the actual Fargate runner sandbox passed 10 synthetic tests, using a test
+image with the production candidate's identical base layers. Signed S3 transport,
+coordinator IAM/cleanup and full submission integration remain unverified.
+See the workspace sibling [Fargate validation evidence](../../obo-harness/evidence/2026-11-04-fargate-isolation/REPORT.md).
 
 ## Execution boundary
 
@@ -91,11 +94,15 @@ RUNNER_SECURITY_GROUP.
 - REQUEST_URL is an exact-object GET; RESULT_POST is an exact-object, expiring, size-bounded
   POST. They are the only runner overrides. Do not log their values or expose task inspection.
   The S3 client pins regional HTTPS, virtual addressing and SigV4.
-- Runner SG/routes must deny ingress, public internet and RDS/Redis/VM access. Restrict egress
-  to approved S3/ECR/logs endpoints and DNS, and restrict bucket access to that endpoint.
-  Worker transport accepts only regional S3 HTTPS without redirects/proxies. Submitted code
-  cannot create sockets, including to metadata. Task-definition validation does not prove
-  SG, IAM, endpoint or bucket policies; verify those independently.
+- The selected deployment uses the existing NAT EC2, not paid interface endpoints:
+  see [NAT network contract](runner/NAT_NETWORK.md). The runner has no public IP or ingress;
+  a dedicated subnet ACL denies RFC1918 traffic, while TCP443 to public destinations is
+  allowed through NAT for trusted image/log transport. This is not a public-internet deny
+  or an AWS-domain allowlist. S3 uses the existing free Gateway endpoint.
+  Worker transport still accepts only regional S3 HTTPS without redirects/proxies.
+  Compiler and submitted code cannot create sockets, including to metadata, under seccomp.
+  Task-definition validation does not prove SG, ACL, IAM, bucket policy or sandbox isolation;
+  verify these independently on Fargate before opening submissions.
 
 ## Rollout and recovery — separate approval required
 
@@ -128,7 +135,9 @@ AUDIT-01 stays P0 open, with AUDIT-09 linked and unresolved, until these safegua
 
 ## Local evidence
 
-See [ISOLATION-VALIDATION.md](ISOLATION-VALIDATION.md) for approved execution/cleanup.
+Historical execution/cleanup records are preserved in the workspace sibling
+[validation archive](../../obo-harness/evidence/2026-11-04-infra-layout/isolation-validation-history.md).
+Current repeatable CI commands remain in this repository's workflow and test sources.
 Pure Python 27, Node 8, disposable PostgreSQL 32, actual Linux sandbox 5 tests passed.
 No production DB/AWS, deployment or remote push. Local Docker is not Fargate validation.
 AUDIT-08: PostgreSQL harnesses now require DIVEON_GRADING_PG_TEST=approved and explicit PG_BIN;

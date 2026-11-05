@@ -43,7 +43,7 @@ def load_handler(submission_id):
     exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), 'exec'), namespace)
     namespace.update({name: getattr(protocol, name) for name in ('MAX_SOURCE', 'MAX_INPUT', 'MAX_OUTPUT', 'MAX_TIME', 'MAX_MEMORY_MB', 'MAX_CASES', 'integer', 'decode')})
     namespace['update_scoreboard'] = Mock()
-    namespace.update({name: getattr(obo_assessment,name) for name in ('load_revision','revision_cases','semantic_verdict','public_record')})
+    namespace.update({name: getattr(obo_assessment,name) for name in ('load_revision','revision_cases','semantic_verdict','public_record','public_diagram_record')})
     return namespace
 
 
@@ -97,7 +97,7 @@ class ContestResultTest(unittest.TestCase):
                     );
                     CREATE TABLE solve_submission (
                         id bigint PRIMARY KEY, prob_id bigint REFERENCES problem_summary,
-                        submission_state text NOT NULL, user_id bigint NOT NULL DEFAULT 7,
+                        submission_state text NOT NULL, submitter_id bigint NOT NULL DEFAULT 7,
                         obo_public_records jsonb, problem_revision_id text
                     );
                     CREATE TABLE problem_revision (id text PRIMARY KEY, problem_id bigint, snapshot jsonb);
@@ -438,7 +438,7 @@ class ContestResultTest(unittest.TestCase):
         self.prepare_full_submission()
         self.finalize()
         with self.conn, self.conn.cursor() as cur:
-            cur.execute("INSERT INTO solve_submission (id, prob_id, submission_state, user_id) VALUES (102, 2, 'PENDING', 8)")
+            cur.execute("INSERT INTO solve_submission (id, prob_id, submission_state, submitter_id) VALUES (102, 2, 'PENDING', 8)")
         other = load_handler(102)
         other.update(PROBLEM_ID='2', IS_CONTEST=False)
         self.finalize(scope=other)
@@ -701,7 +701,7 @@ class ContestResultTest(unittest.TestCase):
             cur.execute("""
                 CREATE TABLE problem_summary(id bigint PRIMARY KEY, solved_count integer);
                 CREATE TABLE domain_user(id bigint PRIMARY KEY);
-                CREATE TABLE solve_submission(id bigint PRIMARY KEY, prob_id bigint, user_id bigint);
+                CREATE TABLE solve_submission(id bigint PRIMARY KEY, prob_id bigint, submitter_id bigint);
                 CREATE TABLE solve_result(submission_id bigint, result_status text);
                 CREATE TABLE contest_problem(id bigint PRIMARY KEY, problem_id bigint);
                 CREATE TABLE contest_submission(contest_problem_id bigint, user_id bigint, is_correct boolean);

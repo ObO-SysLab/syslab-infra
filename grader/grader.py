@@ -142,7 +142,7 @@ def update_solved_count(conn, is_correct):
         cur.execute(
             """WITH added AS (
                 INSERT INTO problem_solver(prob_id, user_id)
-                SELECT prob_id, user_id FROM solve_submission WHERE id = %s AND prob_id = %s
+                SELECT prob_id, submitter_id FROM solve_submission WHERE id = %s AND prob_id = %s
                 ON CONFLICT (prob_id, user_id) DO NOTHING RETURNING prob_id
             )
             UPDATE problem_summary SET solved_count = solved_count + 1

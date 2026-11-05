@@ -1,5 +1,6 @@
 import {registry,defaultInput,run} from './index.mjs';
 import {ensure,clone,unique,byteSize,checkShape,parseBoundedJson} from './validation.mjs';
+import {RR_TEXT,rrInputText} from './rrText.mjs';
 const identifier={type:'string',pattern:'^[A-Za-z0-9_-]{1,100}$'};
 const nullableId={anyOf:[identifier,{type:'null'}]};
 const object=(properties)=>({type:'object',properties,required:Object.keys(properties),additionalProperties:false});
@@ -19,7 +20,7 @@ const documentSchema=object({
     decorations:{type:'array',maxItems:300,items:object({id:identifier,source:identifier,target:identifier})},
     labels:{type:'object',propertyNames:identifier,additionalProperties:text(256)}
   })},
-  question:object({selectionMode:{enum:['single','multiple']},judgeProfile:{enum:['text-v1','obo-v1']},assessmentMode:{enum:['result','process']},gradingInstanceId:nullableId}),
+  question:{type:'object',properties:{selectionMode:{enum:['single','multiple']},judgeProfile:{enum:['text-v1','obo-v1']},assessmentMode:{enum:['result','process']},gradingInstanceId:nullableId,ioFormat:{enum:[RR_TEXT,'json-v1']}},required:['selectionMode','judgeProfile','assessmentMode','gradingInstanceId'],additionalProperties:false},
   explanations:object({common:ids,choices:{type:'object',propertyNames:identifier,additionalProperties:ids}})
 });
 export const roleLabels={actor:'실행 주체',processor:'처리 장치',resource:'자원',queue:'큐·버퍼',record:'자료구조',memory:'메모리',region:'영역',relation:'관계',timeline:'시간축',metric:'통계',storage:'저장 장치',annotation:'설명'};
@@ -142,6 +143,10 @@ export function validateDocument(document,{execute=true}={}) {
     if(execute)run(instance.scenarioId,instance.input,{record:false});
   }
   const q=document.question;ensure(q&&['single','multiple'].includes(q.selectionMode)&&['text-v1','obo-v1'].includes(q.judgeProfile)&&['result','process'].includes(q.assessmentMode),'문제 규칙을 확인하세요.');
+  if(q.ioFormat===RR_TEXT){
+    const selected=document.instances.find(i=>i.id===q.gradingInstanceId);
+    ensure(q.judgeProfile==='obo-v1'&&q.assessmentMode==='result'&&selected?.scenarioId==='RR','구간 출력은 RR 결과 채점에서만 사용할 수 있습니다.');rrInputText(selected.input);
+  }
   if(q.judgeProfile==='obo-v1'){
     const selected=document.instances.find(i=>i.id===q.gradingInstanceId);ensure(selected,'채점할 실행을 선택하세요.');ensure(!(selected.scenarioId==='DP'&&selected.input.mode==='findSchedule'&&q.assessmentMode!=='process'),'유효 일정 찾기는 과정형만 지원합니다.');
   }

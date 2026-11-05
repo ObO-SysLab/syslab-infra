@@ -26,3 +26,7 @@
 /grader/runner/test_diagram_linux.py -text
 /grader/tests/test_diagram_output.py -text
 /.gitattributes -text
+
+# Preserve public-contract bytes and reviewed new-source evidence.
+/grader/obo_runtime/diagram-contract.json -text
+/grader/runner/diagram-fixtures.json -text

@@ -15,7 +15,7 @@ RUNTIME = Path(__file__).resolve().parent / 'obo_runtime'
 def verify_release():
     manifest = json.loads((RUNTIME / 'manifest.json').read_text(encoding='utf-8'))
     for name, expected in manifest['files'].items():
-        if Path(name).name != name or not name.endswith('.mjs'):
+        if Path(name).name != name or not (name.endswith('.mjs') or name == 'diagram-contract.json'):
             raise OboCheckerError('Invalid checker manifest')
         if hashlib.sha256((RUNTIME / name).read_bytes()).hexdigest() != expected:
             raise OboCheckerError('Checker release checksum mismatch')

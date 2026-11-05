@@ -2,11 +2,16 @@
 import {grade,run,parseBoundedJson,checkShape,registry} from './index.mjs';
 import {validateDocument} from './document.mjs';
 import {validateFreeDiagram} from './freeDiagram.mjs';
+import {referenceRrText,gradeRrText} from './rrText.mjs';
 let size=0;const chunks=[];
 try {
   for await(const chunk of process.stdin){size+=chunk.length;if(size>8*1048576)throw Error('요청 크기 초과');chunks.push(chunk);}
   const request=parseBoundedJson(Buffer.concat(chunks).toString('utf8'),{bytes:8*1048576,depth:40});
-  if(request.operation==='validateFreeDiagram') {
+  if(request.operation==='rrReference'||request.operation==='rrGrade'){
+    const grading=request.operation==='rrGrade';
+    checkShape({type:'object',required:['operation','input',...(grading?['stdout']:[])],properties:{operation:{enum:['rrReference','rrGrade']},input:{type:'string'},...(grading?{stdout:{type:'string'}}:{})},additionalProperties:false},request);
+    process.stdout.write(JSON.stringify({ok:true,...(grading?gradeRrText(request.input,request.stdout):referenceRrText(request.input))}));
+  }else if(request.operation==='validateFreeDiagram') {
     validateFreeDiagram(request.document);
     process.stdout.write(JSON.stringify({ok:true}));
   }else if(request.operation==='validateDocument') {

@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import execution_protocol as protocol
-from obo_assessment import revision_cases, semantic_verdict, public_record
+from obo_assessment import revision_cases, semantic_verdict, public_record, public_diagram_record
 
 
 class CoordinatorTest(unittest.TestCase):
@@ -26,7 +26,7 @@ class CoordinatorTest(unittest.TestCase):
             PROBLEM_ID='8', LANGUAGE='python', CODE_S3_KEY='code', S3_BUCKET='trusted-code',
             TIME_LIMIT=1, MEMORY_LIMIT=256, TESTCASE_COUNT=1, IS_CONTEST=False,
             begin_grading=Mock(return_value=True), finalize_submission=Mock(), report_attempt_failure=Mock(),
-            load_revision=Mock(return_value=None),
+            load_revision=Mock(return_value=None), public_diagram_record=public_diagram_record,
             create_runner=Mock(return_value=self.runner),
             read_object=Mock(side_effect=[b'print(input())', b'input', b'answer\n']))
 
@@ -77,6 +77,17 @@ class CoordinatorTest(unittest.TestCase):
         self.scope['read_object'].assert_called_once()
         self.runner.execute.assert_called_once_with('python', b'print(input())', [b'frozen input'], 1, 256)
         self.assertEqual('CORRECT', self.scope['finalize_submission'].call_args.args[1])
+
+    def test_diagram_output_is_public_only_for_samples_and_keeps_text_verdict(self):
+        for sample in [True, False]:
+            self.setUp()
+            snapshot = self.use_revision()
+            snapshot['obo'] = {'mode': 'coding_diff'}
+            snapshot['testcases'][0]['isSample'] = sample
+            self.scope['main']()
+            args = self.scope['finalize_submission'].call_args.args
+            self.assertEqual('CORRECT', args[1])
+            self.assertEqual([{'caseIndex': 1, 'kind': 'diagram', 'stdout': 'answer\n'}] if sample else [], args[5])
 
     def test_semantic_grading_uses_model_result_not_text_output(self):
         snapshot = self.use_revision('obo-v1')

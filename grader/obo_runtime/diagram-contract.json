@@ -1,0 +1,13 @@
+{
+  "state-node": {"name":"상태", "fields":{"label":"문자열: 장면에 표시할 상태 이름"}},
+  "text-label": {"name":"설명", "fields":{"text":"문자열: 표시할 설명"}},
+  "gantt-lane": {"name":"간트", "fields":{"blocks":"배열: [{\"id\":\"b1\",\"label\":\"P1\",\"start\":0,\"end\":2}]. 시작은 0 이상, 종료는 시작보다 큼","activeBlockIndex":"강조할 구간의 0부터 시작하는 인덱스 또는 null"}},
+  "slot-grid": {"name":"메모리 슬롯", "fields":{"slots":"숫자 또는 null 배열. 출제자가 본문에 명시한 칸 수 이내","faultSlotIndex":"실패한 칸의 인덱스 또는 null","hitSlotIndex":"적중한 칸의 인덱스 또는 null","activeSlotIndex":"활성 칸의 인덱스 또는 null","pointerSlotIndex":"포인터 칸의 인덱스 또는 null"}},
+  "resource-square": {"name":"자원", "fields":{"instances":"정수 0~10000: 전체 자원 수","allocated":"정수 0~instances: 할당된 자원 수"}},
+  "counter-badge": {"name":"카운터", "fields":{"value":"유한한 숫자: 현재 값","delta":"유한한 숫자 또는 null: 이번 장면의 증감 표시"}},
+  "queue-strip": {"name":"큐", "fields":{"capacity":"정수 0~64: 용량, items 길이 이상","items":"문자열 배열: 큐의 항목","direction":"문자열 ltr 또는 rtl: 표시 방향"}},
+  "table-grid": {"name":"표", "fields":{"headers":"문자열 배열: 열 이름","rows":"이차원 배열: 셀은 문자·숫자·불리언·null. 행마다 열 수 동일","activeRow":"강조할 행의 인덱스 또는 null","width":"숫자 160~1200: 표시 너비"}},
+  "memory-range": {"name":"메모리 영역", "fields":{"start":"0 이상 정수: 시작 주소","size":"1 이상 정수: 전체 크기","segments":"배열: [{\"id\":\"s1\",\"start\":0,\"size\":16}]. 주소가 연속적이고 전체 영역을 채워야 함","activeIds":"segments에 있는 ID의 문자열 배열"}},
+  "process-box": {"name":"프로세스", "fields":{"sections":"배열: [{\"name\":\"code\",\"value\":\"main\"}]","threads":"배열: [{\"id\":\"t1\",\"label\":\"T1\",\"pc\":\"0\",\"register\":\"0\",\"stack\":\"0\"}]","activeThreadId":"threads에 있는 ID 또는 null"}},
+  "line-chart": {"name":"그래프", "fields":{"xLabel":"문자열: X축 이름","yLabel":"문자열: Y축 이름","width":"숫자: 너비","height":"숫자: 높이","xMin":"숫자: X축 최소","xMax":"숫자: X축 최대, xMin보다 큼","yMin":"숫자: Y축 최소","yMax":"숫자: Y축 최대, yMin보다 큼","xTicks":"숫자 배열: X축 범위 안의 눈금","yTicks":"숫자 배열: Y축 범위 안의 눈금","series":"배열: [{\"id\":\"s1\",\"label\":\"A\",\"points\":[{\"x\":0,\"y\":1}]}]. 좌표는 축 범위 안","progressIndex":"-1부터 마지막 점까지의 인덱스 또는 null","activePointIndex":"-1부터 마지막 점까지의 인덱스 또는 null"}}
+}

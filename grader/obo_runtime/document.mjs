@@ -119,6 +119,12 @@ export function createInstance(scenarioId='ST2') {
     instance.views=[{...createView('record'),label:'프로세스 간 통신',width:900,height:500},createView('annotation')];
     return instance;
   }
+  if(scenarioId==='P2') {
+    // Authoring default only (contracts inputExample stays the minimal shape example): a textbook string that shows hits and replacements.
+    instance.input={refs:[7,0,1,2,0,3,0,4,2,3,0,3],frameCount:3,policy:'FIFO',initial:[]};
+    instance.views=[{...createView('record'),label:'참조열과 프레임',width:900,height:380},createView('annotation')];
+    return instance;
+  }
   if(scenarioId==='K-SYSCALL'||scenarioId==='K-INTERRUPT') {
     instance.views=[{...createView('record'),label:scenarioId==='K-SYSCALL'?'시스템 호출과 모드':'인터럽트와 실행 주체',width:900,height:500},createView('annotation')];
     return instance;

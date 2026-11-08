@@ -125,6 +125,14 @@ export function createInstance(scenarioId='ST2') {
     instance.views=[{...createView('record'),label:'참조열과 프레임',width:900,height:380},createView('annotation')];
     return instance;
   }
+  if(scenarioId==='G2'||scenarioId==='RR'||scenarioId==='PS') {
+    // Four jobs whose order and waiting differ by policy (FCFS 4 · SJF 3.25 · SRTF 2.25 · RR 4.5 · PS-P 3.5 average waiting).
+    const jobs=[{id:'P1',arrival:0,bursts:[5],priority:3},{id:'P2',arrival:1,bursts:[3],priority:1},{id:'P3',arrival:2,bursts:[1],priority:4},{id:'P4',arrival:3,bursts:[2],priority:2}];
+    instance.input={jobs,policy:scenarioId==='G2'?'SJF':scenarioId==='RR'?'RR':'PS-P',quantum:2};
+    const timeline={...createView('timeline'),label:scenarioId==='G2'?'정책별 실행 순서':scenarioId==='RR'?'Round Robin 실행':'우선순위 실행',width:900,height:scenarioId==='G2'?540:500};
+    instance.views=scenarioId==='G2'?[timeline,createView('annotation')]:[timeline];
+    return instance;
+  }
   if(scenarioId==='TH') {
     // P cycles 4 pages with 2 frames (working set > quota → repeated misses); Q cycles 2 pages with 2 frames.
     const stream=[];for(let i=0;i<8;i++){stream.push({id:'P',page:[1,2,3,4][i%4]});stream.push({id:'Q',page:[7,8][i%2]});}

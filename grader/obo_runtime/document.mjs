@@ -43,6 +43,46 @@ export function semanticEntities(instance) {
 export function createView(role,target=null,at=0) {
   return {id:freshId('view'),role,target,x:40+(at%3)*300,y:40+Math.floor(at/3)*220,width:270,height:180,label:roleLabels[role],color:'#4f46e5',hidden:false,text:'',when:{kind:null,actor:null},fields:[]};
 }
+const placementGap=30,placementLimit=100000;
+function checkViewGeometry(view) {
+  ensure(view&&[view.x,view.y,view.width,view.height].every(Number.isFinite),'표시 위치와 크기를 확인하세요.');
+  ensure(Math.abs(view.x)<=placementLimit&&Math.abs(view.y)<=placementLimit,'배치 범위를 벗어났습니다.');
+  ensure(view.width>=100&&view.width<=2000&&view.height>=60&&view.height<=2000,'표시 크기를 확인하세요.');
+}
+function placementViews(instance,excludedIds) {
+  const excluded=new Set(excludedIds);
+  return instance.views.filter(view=>!excluded.has(view.id));
+}
+function placementOverlaps(a,b) {
+  return !(a.x+a.width+placementGap<=b.x||b.x+b.width+placementGap<=a.x||a.y+a.height+placementGap<=b.y||b.y+b.height+placementGap<=a.y);
+}
+/** Place only the new view. Caller exclusions are for known off-canvas views, not hidden/when state. */
+export function placeNewView(instance,view,{excludedIds=[]}={}) {
+  checkViewGeometry(view);
+  const occupied=placementViews(instance,excludedIds);
+  occupied.forEach(checkViewGeometry);
+  const free=point=>Math.abs(point.x)<=placementLimit&&Math.abs(point.y)<=placementLimit&&occupied.every(old=>!placementOverlaps({...view,x:point.x,y:point.y},old));
+  if(free(view))return clone(view);
+  const origin=occupied[0]??{x:40,y:40},width=Math.max(900,view.width,...occupied.map(old=>old.width));
+  const xs=new Set([origin.x,view.x,-placementLimit,placementLimit]),ys=new Set([origin.y,view.y,-placementLimit,placementLimit]);
+  for(const old of occupied){
+    xs.add(old.x+old.width+placementGap);xs.add(old.x-view.width-placementGap);
+    ys.add(old.y+old.height+placementGap);ys.add(old.y-view.height-placementGap);
+  }
+  const candidates=[];
+  for(const y of ys)for(const x of xs){
+    if(Math.abs(x)>placementLimit||Math.abs(y)>placementLimit)continue;
+    const local=x>=origin.x&&y>=origin.y&&x+view.width<=origin.x+width;
+    candidates.push({x,y,score:local?[0,y-origin.y,x-origin.x]:[1,Math.abs(x-origin.x)+Math.abs(y-origin.y),y,x]});
+  }
+  candidates.sort((a,b)=>{
+    for(let i=0;i<a.score.length;i++){const delta=a.score[i]-b.score[i];if(delta)return delta;}
+    return 0;
+  });
+  const chosen=candidates.find(free);
+  ensure(chosen,'현재 배치 범위에서 새 표시를 놓을 공간을 찾지 못했습니다.');
+  return {...clone(view),x:chosen.x,y:chosen.y};
+}
 export function createInstance(scenarioId='ST2') {
   ensure(Object.hasOwn(registry,scenarioId),'시나리오가 없습니다.');
   const instance={id:freshId('sim'),scenarioId,modelVersion:1,name:registry[scenarioId].metadata.name,input:defaultInput(scenarioId),views:[],decorations:[],labels:{}};
@@ -81,16 +121,26 @@ export function createInstance(scenarioId='ST2') {
   }
   return arrangeViews(instance);
 }
-export function arrangeViews(instance) {
+export function arrangeViews(instance,{excludedIds=[]}={}) {
   const next=clone(instance);
-  next.views.forEach((v,i)=>{v.x=40+(i%3)*300;v.y=40+Math.floor(i/3)*220;});
   if(next.scenarioId==='DP') {
+    next.views.forEach((v,i)=>{v.x=40+(i%3)*300;v.y=40+Math.floor(i/3)*220;});
     const actors=next.views.filter(v=>v.role==='actor'),resources=next.views.filter(v=>v.role==='resource');
     const radius=Math.max(330,actors.length*85),center=radius+120;
     actors.forEach((v,i)=>{const angle=2*Math.PI*i/actors.length-Math.PI/2;v.x=center+radius*Math.cos(angle)-90;v.y=center+radius*Math.sin(angle)-60;v.width=180;v.height=120;});
     resources.forEach((v,i)=>{const angle=2*Math.PI*(i+.5)/resources.length-Math.PI/2;v.x=center+radius*.62*Math.cos(angle)-70;v.y=center+radius*.62*Math.sin(angle)-50;v.width=140;v.height=100;});
     next.views.filter(v=>!['actor','resource'].includes(v.role)).forEach((v,i)=>{v.x=center+radius+150;v.y=60+i*220;});
-  }return next;
+    return next;
+  }
+  const views=placementViews(next,excludedIds);
+  views.forEach(checkViewGeometry);
+  let y=40;
+  for(let offset=0;offset<views.length;offset+=3){
+    const row=views.slice(offset,offset+3);let x=40;
+    for(const view of row){view.x=x;view.y=y;x+=view.width+placementGap;}
+    y+=Math.max(...row.map(view=>view.height))+placementGap;
+  }
+  return next;
 }
 export function createDocument(scenarioId='ST2') {
   const instance=createInstance(scenarioId);
@@ -104,7 +154,7 @@ export function replaceInput(instance,input) {
   const ids=new Set(next.views.map(v=>v.id));next.decorations=next.decorations.filter(e=>ids.has(e.source)&&ids.has(e.target));
   return next;
 }
-export function addActor(instance,actorRole='producer') {
+export function addActor(instance,actorRole='producer',options={}) {
   const next=clone(instance),x=next.input,id=freshId('P'),f=registry[next.scenarioId].family;
   if(f==='cpu-scheduling')x.jobs.push({id,arrival:0,bursts:[1],priority:0});
   else if(f==='lifecycle')x.processes[id]='New';
@@ -117,7 +167,7 @@ export function addActor(instance,actorRole='producer') {
   else if(['resource-allocation','banker'].includes(f)){x.actors.push(id);x.allocated.push(x.resources.map(()=>0));(x.max??x.requests).push(x.resources.map(()=>0));}
   else if(f==='ipc')x.actors.push(id);
   else throw Error('이 모델의 실행 주체는 입력 설정에서 구성합니다.');
-  next.views.push(createView('actor',id,next.views.length));return next;
+  next.views.push(placeNewView(next,createView('actor',id,next.views.length),options));return next;
 }
 export function deleteActor(instance,id) {
   const next=clone(instance),x=next.input,f=registry[next.scenarioId].family;

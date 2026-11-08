@@ -8,6 +8,9 @@ export const diagramFields = {
   'memory-range':['start','size','segments','activeIds'], 'process-box':['sections','threads','activeThreadId'],
   'line-chart':['xLabel','yLabel','width','height','xMin','xMax','yMin','yMax','xTicks','yTicks','series','progressIndex','activePointIndex'],
 };
+// Presentation is authored in the editor; learner output keeps its existing fields.
+const manualDiagramFields = { ...diagramFields, 'process-box': [...diagramFields['process-box'],
+ 'hiddenSectionNames','hiddenThreadIds','threadFields','threadLayout','sectionLayout','showSharedLinks','width'] };
 const events={'gantt-lane':['activeBlockIndex'],'slot-grid':['faultSlotIndex','hitSlotIndex','activeSlotIndex','pointerSlotIndex'],'counter-badge':['delta']};
 const fail=(p,m)=>{throw Error(`${p}: ${m}`);};
 const object=(v,p)=>{if(!v||typeof v!=='object'||Array.isArray(v))fail(p,'객체가 필요합니다.');return v;};
@@ -54,6 +57,11 @@ export function validateDiagramElement(type,d,p='data'){
   if(segments.length&&cursor!==start+size)fail(p,'전체 크기와 구간 길이 합계를 맞추세요.');refs(d.activeIds??[],ids,`${p}.activeIds`);break;
  }
  case 'process-box':{
+  if(d.width!==undefined)num(d.width,`${p}.width`,280,800,true);
+  for(const k of ['hiddenSectionNames','hiddenThreadIds','threadFields'])if(d[k]!==undefined){const a=list(d[k],`${p}.${k}`);a.forEach(v=>str(v,`${p}.${k}`));if(new Set(a).size!==a.length)fail(p,'표시 항목이 중복되었습니다.');}
+  if(d.threadFields?.some(v=>!['pc','register','stack'].includes(v)))fail(p,'스레드 표시 항목을 확인하세요.');
+  for(const k of ['threadLayout','sectionLayout'])if(d[k]!==undefined&&!['row','column'].includes(d[k]))fail(p,'가로 또는 세로 배치를 선택하세요.');
+  if(d.showSharedLinks!==undefined&&typeof d.showSharedLinks!=='boolean')fail(p,'공유 관계선 표시를 확인하세요.');
   const threads=list(d.threads??[],`${p}.threads`),ids=new Set();for(const t of threads){object(t,p);id(t.id,p);if(ids.has(t.id))fail(p,'스레드 ID가 중복되었습니다.');ids.add(t.id);str(t.label,p);for(const k of ['pc','register','stack'])if(t[k]!==undefined)str(t[k],p);}
   for(const s of list(d.sections??[],`${p}.sections`)){object(s,p);str(s.name,p);str(s.value,p);}
   if(d.activeThreadId!=null&&!ids.has(d.activeThreadId))fail(p,'현재 스레드가 목록에 없습니다.');break;
@@ -85,7 +93,7 @@ export function validateDiagramBlob(blob,p='diagram',trace=false){
   const overrides=object((trace?f.overrides:f.nodeDataOverrides)??{},fp);
   for(const [key,patch] of Object.entries(overrides)){
    if(!nodeMap.has(key))fail(fp,'장면의 요소 참조가 없습니다.');object(patch,fp);
-   for(const field of Object.keys(patch))if(!(diagramFields[nodeMap.get(key).type]??[]).includes(field))fail(fp,`지원하지 않는 장면 필드 ${field}`);
+   for(const field of Object.keys(patch))if(!((trace?diagramFields:manualDiagramFields)[nodeMap.get(key).type]??[]).includes(field))fail(fp,`지원하지 않는 장면 필드 ${field}`);
   }
   for(const n of nodes){const d={...values.get(n.id)};for(const k of events[n.type]??[])d[k]=null;Object.assign(d,overrides[n.id]??{});validateDiagramElement(n.type,d,`${fp}.${n.id}`);values.set(n.id,d);}
  });

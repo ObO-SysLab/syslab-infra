@@ -1,7 +1,7 @@
 // Shared authoring boundary. Validation never repairs, truncates or mutates saved work.
 import {parseBoundedJson} from './validation.mjs';
 export const diagramFields = {
-  'state-node':['label'], 'text-label':['text'], 'gantt-lane':['blocks','activeBlockIndex'],
+  'state-node':['label','removed'], 'text-label':['text'], 'gantt-lane':['blocks','activeBlockIndex'],
   'slot-grid':['slots','faultSlotIndex','hitSlotIndex','activeSlotIndex','pointerSlotIndex'],
   'resource-square':['instances','allocated'], 'counter-badge':['value','delta'],
   'queue-strip':['capacity','items','direction'], 'table-grid':['headers','rows','activeRow','width'],
@@ -33,7 +33,7 @@ export function validateDiagramElement(type,d,p='data'){
  object(d,p);
  if(d.label!==undefined)str(d.label,`${p}.label`);
  switch(type){
- case 'state-node': break;
+ case 'state-node': if(d.removed!==undefined&&typeof d.removed!=='boolean')fail(`${p}.removed`,'삭제 표시 여부를 확인하세요.'); break;
  case 'text-label':
   if(d.text!==undefined)str(d.text,`${p}.text`);
   if(d.caption!==undefined&&str(d.caption,`${p}.caption`).length>80)fail(`${p}.caption`,'설명은 80자 이하여야 합니다.');

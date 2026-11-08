@@ -156,6 +156,32 @@ export function createInstance(scenarioId='ST2') {
     instance.views=[{...createView('record'),label:scenarioId==='K-SYSCALL'?'시스템 호출과 모드':'인터럽트와 실행 주체',width:900,height:500},createView('annotation')];
     return instance;
   }
+  if(scenarioId==='MF') {
+    // The last request is rejected under every policy although the free total would hold it (external fragmentation).
+    instance.input={total:64,initial:[{start:0,size:64,owner:null}],operations:[{op:'alloc',id:'A',size:10},{op:'alloc',id:'B',size:20},{op:'alloc',id:'C',size:8},{op:'free',id:'B'},{op:'alloc',id:'D',size:12},{op:'alloc',id:'E',size:30}],policy:'best'};
+    instance.views=[{...createView('memory'),label:'주소 공간과 빈 구멍',width:900,height:360},createView('annotation')];
+    return instance;
+  }
+  if(scenarioId==='S3') {
+    // Single-instance R1/R2: P1 and P2 each hold one and request the other (deadlock); P3 waits but holds nothing.
+    instance.input={actors:['P1','P2','P3'],resources:['R1','R2'],available:[1,1],allocated:[[0,0],[0,0],[0,0]],requests:[[0,0],[0,0],[0,0]],
+      actions:[{actor:'P1',op:'request',values:[1,0]},{actor:'P2',op:'request',values:[0,1]},{actor:'P1',op:'request',values:[0,1]},{actor:'P2',op:'request',values:[1,0]},{actor:'P3',op:'request',values:[1,0]}]};
+    instance.views=[{...createView('relation'),label:'자원 할당 그래프',width:900,height:470},createView('annotation')];
+    return instance;
+  }
+  if(scenarioId==='DP') {
+    // Five philosophers, left fork first, two rounds of turns: everyone ends holding one fork and waiting (deadlock).
+    const actors=['A','B','C','D','E'],zero=Object.fromEntries(actors.map(id=>[id,0])),one=Object.fromEntries(actors.map(id=>[id,1]));
+    instance.input={actors,order:[...actors,...actors],policy:'left',mode:'fixedSchedule',thinkTicks:zero,eatTicks:one,goalMeals:{}};
+    instance.views=[{...createView('relation'),label:'원탁과 포크',width:900,height:470},createView('annotation')];
+    return instance;
+  }
+  if(scenarioId==='DS') {
+    // Textbook queue from cylinder 53 on 0–199: FCFS 640 · SSTF 236 · SCAN 331 · C-SCAN 382. The DS contract has no annotation role.
+    instance.input={requests:[['a',98],['b',183],['c',37],['d',122],['e',14],['f',124],['g',65],['h',67]].map(([id,position])=>({id,position})),start:53,max:199,policy:'SSTF',direction:1};
+    instance.views=[{...createView('storage'),label:'헤드 이동 경로',width:900,height:470}];
+    return instance;
+  }
   for(const role of registry[scenarioId].metadata.elements) {
     if(['S3','BK','DP'].includes(scenarioId)&&['actor','resource'].includes(role))for(const target of entities[role])instance.views.push(createView(role,target,instance.views.length));
     else instance.views.push(createView(role,null,instance.views.length));
@@ -164,7 +190,8 @@ export function createInstance(scenarioId='ST2') {
 }
 export function arrangeViews(instance,{excludedIds=[]}={}) {
   const next=clone(instance);
-  if(next.scenarioId==='DP') {
+  // The DP ring layout applies only to per-philosopher/fork cards; the one-card table (2026-11-08 default) uses the row layout.
+  if(next.scenarioId==='DP'&&next.views.some(v=>['actor','resource'].includes(v.role))) {
     next.views.forEach((v,i)=>{v.x=40+(i%3)*300;v.y=40+Math.floor(i/3)*220;});
     const actors=next.views.filter(v=>v.role==='actor'),resources=next.views.filter(v=>v.role==='resource');
     const radius=Math.max(330,actors.length*85),center=radius+120;

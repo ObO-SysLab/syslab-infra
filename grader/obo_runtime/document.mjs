@@ -88,7 +88,9 @@ export function createInstance(scenarioId='ST2') {
   const instance={id:freshId('sim'),scenarioId,modelVersion:1,name:registry[scenarioId].metadata.name,input:defaultInput(scenarioId),views:[],decorations:[],labels:{}};
   const entities=semanticEntities(instance);
   if(scenarioId==='ST2') {
-    instance.views=[{...createView('relation'),label:'프로세스 상태',width:800,height:450},createView('annotation')];
+    // Two processes that pass through all six transitions (I/O wait, preemption, completion); at most one runs at a time.
+    instance.input={processes:{P1:'New',P2:'New'},actions:[['P1','create'],['P2','create'],['P1','dispatch'],['P1','io'],['P2','dispatch'],['P1','completeIO'],['P2','preempt'],['P1','dispatch'],['P1','finish'],['P2','dispatch'],['P2','finish']].map(([id,event])=>({id,event}))};
+    instance.views=[{...createView('relation'),label:'프로세스 상태',width:800,height:460},createView('annotation')];
     return instance;
   }
   if(scenarioId==='BK') {

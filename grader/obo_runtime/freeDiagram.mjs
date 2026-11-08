@@ -9,7 +9,7 @@ export const diagramFields = {
   'line-chart':['xLabel','yLabel','width','height','xMin','xMax','yMin','yMax','xTicks','yTicks','series','progressIndex','activePointIndex'],
 };
 // Presentation is authored in the editor; learner output keeps its existing fields.
-const manualDiagramFields = { ...diagramFields, 'process-box': [...diagramFields['process-box'],
+const manualDiagramFields = { ...diagramFields, 'queue-strip': [...diagramFields['queue-strip'], 'displayStyle','showCount','showDirection'], 'process-box': [...diagramFields['process-box'],
  'hiddenSectionNames','hiddenThreadIds','threadFields','threadLayout','sectionLayout','showSharedLinks','width'] };
 const events={'gantt-lane':['activeBlockIndex'],'slot-grid':['faultSlotIndex','hitSlotIndex','activeSlotIndex','pointerSlotIndex'],'counter-badge':['delta']};
 const fail=(p,m)=>{throw Error(`${p}: ${m}`);};
@@ -34,10 +34,25 @@ export function validateDiagramElement(type,d,p='data'){
  if(d.label!==undefined)str(d.label,`${p}.label`);
  switch(type){
  case 'state-node': break;
- case 'text-label': if(d.text!==undefined)str(d.text,`${p}.text`);break;
+ case 'text-label':
+  if(d.text!==undefined)str(d.text,`${p}.text`);
+  if(d.caption!==undefined&&str(d.caption,`${p}.caption`).length>80)fail(`${p}.caption`,'설명은 80자 이하여야 합니다.');
+  break;
  case 'resource-square':{const n=num(d.instances??1,`${p}.instances`,0,10000,true);num(d.allocated??0,`${p}.allocated`,0,n,true);break;}
- case 'counter-badge':for(const k of ['value','min','max','delta'])if(d[k]!=null)num(d[k],`${p}.${k}`);break;
- case 'queue-strip':{const a=list(d.items??[],`${p}.items`,64);const n=num(d.capacity??a.length,`${p}.capacity`,0,64,true);if(a.length>n)fail(p,'항목 수가 버퍼 용량보다 많습니다.');a.forEach((x,i)=>str(x,`${p}.items[${i}]`));if(d.direction!==undefined&&!['ltr','rtl'].includes(d.direction))fail(p,'버퍼 방향을 확인하세요.');break;}
+ case 'counter-badge':
+  for(const k of ['value','min','max','delta'])if(d[k]!=null)num(d[k],`${p}.${k}`);
+  if(d.displayStyle!==undefined&&!['badge','semaphore'].includes(d.displayStyle))fail(`${p}.displayStyle`,'카운터 표시 방식을 확인하세요.');
+  if(d.caption!==undefined&&str(d.caption,`${p}.caption`).length>80)fail(`${p}.caption`,'설명은 80자 이하여야 합니다.');
+  for(const k of ['showTokens','showInPlayback'])if(d[k]!==undefined&&typeof d[k]!=='boolean')fail(`${p}.${k}`,'표시 여부를 확인하세요.');
+  break;
+ case 'queue-strip':{
+  const a=list(d.items??[],`${p}.items`,64);const n=num(d.capacity??a.length,`${p}.capacity`,0,64,true);
+  if(a.length>n)fail(p,'항목 수가 버퍼 용량보다 많습니다.');a.forEach((x,i)=>str(x,`${p}.items[${i}]`));
+  if(d.direction!==undefined&&!['ltr','rtl'].includes(d.direction))fail(p,'버퍼 방향을 확인하세요.');
+  if(d.displayStyle!==undefined&&!['strip','buffer'].includes(d.displayStyle))fail(`${p}.displayStyle`,'버퍼 표시 방식을 확인하세요.');
+  for(const k of ['showCount','showDirection'])if(d[k]!==undefined&&typeof d[k]!=='boolean')fail(`${p}.${k}`,'표시 여부를 확인하세요.');
+  break;
+ }
  case 'table-grid':{
   const h=list(d.headers??[],`${p}.headers`),r=list(d.rows??[],`${p}.rows`);h.forEach((x,i)=>str(x,`${p}.headers[${i}]`));
   const n=h.length||(Array.isArray(r[0])?r[0].length:0);

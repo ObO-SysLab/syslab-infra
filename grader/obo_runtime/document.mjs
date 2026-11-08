@@ -125,6 +125,13 @@ export function createInstance(scenarioId='ST2') {
     instance.views=[{...createView('record'),label:'참조열과 프레임',width:900,height:380},createView('annotation')];
     return instance;
   }
+  if(scenarioId==='TH') {
+    // P cycles 4 pages with 2 frames (working set > quota → repeated misses); Q cycles 2 pages with 2 frames.
+    const stream=[];for(let i=0;i<8;i++){stream.push({id:'P',page:[1,2,3,4][i%4]});stream.push({id:'Q',page:[7,8][i%2]});}
+    instance.input={stream,quotas:{P:2,Q:2},window:4,frameBudget:4};
+    instance.views=[{...createView('memory'),label:'프로세스별 메모리 압박',width:900,height:420},createView('annotation')];
+    return instance;
+  }
   if(scenarioId==='P3') {
     // Textbook Belady string: FIFO with 3 vs 4 frames gives 9 vs 10 misses. The memory role shows one row per frame count.
     instance.input={refs:[1,2,3,4,1,2,5,1,2,3,4,5],capacities:[3,4],policy:'FIFO'};

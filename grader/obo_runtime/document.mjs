@@ -115,6 +115,10 @@ export function createInstance(scenarioId='ST2') {
     instance.views=[{...createView('record'),label:'생산자와 소비자',width:900,height:500},createView('annotation')];
     return instance;
   }
+  if(scenarioId==='IPC') {
+    instance.views=[{...createView('record'),label:'프로세스 간 통신',width:900,height:500},createView('annotation')];
+    return instance;
+  }
   for(const role of registry[scenarioId].metadata.elements) {
     if(['S3','BK','DP'].includes(scenarioId)&&['actor','resource'].includes(role))for(const target of entities[role])instance.views.push(createView(role,target,instance.views.length));
     else instance.views.push(createView(role,null,instance.views.length));

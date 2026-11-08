@@ -2,7 +2,7 @@
   "modelVersion": 1,
   "files": {
     "index.mjs": "47d4a3c5a9b458af56de66c23ad62deb80f93bd3388b3445530a0a0596f1e39c",
-    "contracts.mjs": "fbe4d24fa560c25eaf68fb64217ffc8fdb8b903e65e6be1b0e246d80b1c7190c",
+    "contracts.mjs": "d5e3ef0a02172972b6cca1590b5b19294ec7d997ef7731343fa1033c586cdafc",
     "diagram-contract.json": "ef157de32ce1e881b8399db36d2a324b5f0714565a55fda462b414b14a518c26",
     "validation.mjs": "a991986fbe674a51cc68cab9f3825eef604f180044ba3851777f27436626020b",
     "cpu.mjs": "82214711c88ee7f91ea045e3c2d8cf3dbd4c20a2b59f840c17f93486510bde23",
@@ -10,7 +10,7 @@
     "memory.mjs": "684235430aa381895c9925e63d46f811bf58b467f2346e288fe22c017e52ddec",
     "flows.mjs": "ed3ba696248498b9b665a9a37b277f44d9c95f7fa943271a6b2c9f78619d5763",
     "synchronization.mjs": "77483e89cd4b7b9636e88df7017616af92110c17657b73fff6260c893dd858f2",
-    "document.mjs": "64afed4aae9f52dd1fc280ca6f2126e99748b28831520f3ed4c305d34f5d974e",
+    "document.mjs": "282f65986e0bac4b4facc12e69498e86b3d33a538ac40822ae114532e8a57a2f",
     "freeDiagram.mjs": "abf0ecb74c56dd7974fe6353cfb37e146e7e361154b3cf4ff50199503fe7b33f",
     "checker.mjs": "1d2706f4691ac9d2dd264fad37fb06bd90a59a29de95f5c5f8a29801e9cb3dd8"
   }

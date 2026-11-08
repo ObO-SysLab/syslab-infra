@@ -74,6 +74,16 @@ def semantic_verdict(snapshot, case_index, stdout):
         if verdict.get('kind') not in ('correct', 'wrong') or type(verdict.get('correct')) is not bool:
             raise OboCheckerError('Invalid RR verdict')
         return verdict
+    if question.get('ioFormat') == 'text-v1':
+        # Baekjoon-style text (2026-11-08): stdin is the model's text input, stdout is compared line by line.
+        if question.get('assessmentMode') != 'result':
+            raise OboCheckerError('Invalid text grading contract')
+        verdict = invoke({'operation': 'textGrade', 'scenarioId': instances[0]['scenarioId'],
+                          'input': snapshot['testcases'][case_index]['input'], 'stdout': stdout})
+        if verdict.get('kind') not in ('correct', 'wrong') or type(verdict.get('correct')) is not bool:
+            raise OboCheckerError('Invalid text verdict')
+        verdict.pop('ok', None)
+        return verdict
     # Each testcase's stdin is its complete model input; UI inputs are explanation presets only.
     case_input = strict_json(snapshot['testcases'][case_index]['input'])
     return grade_output(instances[0]['scenarioId'], case_input, question.get('assessmentMode'), stdout)
@@ -86,6 +96,12 @@ def public_record(snapshot, case_index, verdict):
     document = snapshot['obo']['simulation']
     instance = next(item for item in document['instances'] if item['id'] == document['question']['gradingInstanceId'])
     rr = document['question'].get('ioFormat') == 'rr-segments-v1'
+    if document['question'].get('ioFormat') == 'text-v1':
+        parsed = invoke({'operation': 'textReference', 'scenarioId': instance['scenarioId'], 'input': case['input']})
+        return dict(caseIndex=case_index + 1, kind='text-lines', scenarioId=instance['scenarioId'], input=parsed['input'],
+                    inputText=case['input'], reference=parsed['reference'], expected=parsed['expected'],
+                    reported=verdict.get('reported'), correct=verdict['correct'], traceValid=False,
+                    message=verdict.get('message', ''))
     if rr:
         parsed = invoke({'operation': 'rrReference', 'input': case['input']})
         model_input, reference = parsed['input'], parsed['reference']

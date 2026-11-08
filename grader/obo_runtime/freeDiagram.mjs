@@ -128,6 +128,13 @@ export function validateFreeDiagram(document){
    if(parsed.errors.length)fail('codingDiff',parsed.errors[0].message);
    if(JSON.stringify(canonical(parsed.trace))!==JSON.stringify(canonical(schema.referenceTrace)))fail('codingDiff','출력 원문과 재생 기록이 다릅니다. 다시 편집기를 열어 확인하세요.');
   }
+  // Scenes authored for a coding problem (2026-11-08): same checks as manual scenes, and the record must come from them.
+  if(schema.frames!==undefined){
+   validateDiagramBlob({nodes:schema.nodes,edges:schema.edges,frames:schema.frames},'codingDiff');
+   schema.frames.forEach((f,i)=>{if(f.excludeFromOutput!==undefined&&typeof f.excludeFromOutput!=='boolean')fail(`codingDiff.장면 ${i+1}`,'학생 출력 포함 여부를 확인하세요.');});
+   if(JSON.stringify(canonical(framesToTrace(schema.nodes,schema.frames)))!==JSON.stringify(canonical(schema.referenceTrace)))fail('codingDiff','장면과 재생 기록이 다릅니다. 다시 편집기를 열어 확인하세요.');
+  }
+  if(schema.outputFormat!==undefined)validateOutputFormat(schema.outputFormat,schema.nodes);
  }
  else fail('OBO','지원하지 않는 문서 모드입니다.');
  return document;
@@ -166,4 +173,128 @@ export function parseDiagramTrace(text,nodes,edges){
  });
  if(!errors.length)try{validateDiagramBlob({nodes,edges,referenceTrace:trace},'출력',true);}catch(error){errors.push({line:1,message:error.message});}
  return {trace,errors};
+}
+
+/* ── Coding problems built from scenes and Baekjoon-style output (2026-11-08) ───────────────────────────
+ * Grading stays a line comparison (text-v1). These only turn scenes into the reference record / expected
+ * output and turn a learner's plain lines back into the same drawing for replay. */
+const ganttGroupOf=n=>String(n.data?.ganttGroup||'기본 간트');
+/** Included scenes become one record each. State values set in explanation-only scenes carry into the next included scene; their events do not. */
+export function framesToTrace(nodes,frames){
+ const types=new Map(nodes.map(n=>[n.id,n.type])),trace=[];let carried={};
+ for(const f of frames??[]){
+  const own={};
+  for(const [id,patch] of Object.entries(f.nodeDataOverrides??{})){const allowed=diagramFields[types.get(id)]??[];const kept=Object.fromEntries(Object.entries(patch??{}).filter(([k])=>allowed.includes(k)));if(Object.keys(kept).length)own[id]=kept;}
+  if(f.excludeFromOutput===true){for(const [id,patch] of Object.entries(own)){const state=Object.fromEntries(Object.entries(patch).filter(([k])=>!(events[types.get(id)]??[]).includes(k)));if(Object.keys(state).length)carried[id]={...carried[id],...state};}continue;}
+  const overrides={};for(const id of new Set([...Object.keys(carried),...Object.keys(own)]))overrides[id]={...carried[id],...own[id]};carried={};
+  trace.push({overrides,highlightNodes:[...(f.highlightNodes??[])],...(f.visibleEdges!==undefined?{visibleEdges:[...f.visibleEdges]}:{})});
+ }
+ return trace;
+}
+export const simpleOutputTypes=['slot-grid','queue-strip','counter-badge','resource-square','text-label','table-grid','state-node','gantt-lane','line-chart'];
+const formatKeys=['kind','target','blank','lineIndexTarget','markChanged','markFoundFrom'];
+export function validateOutputFormat(f,nodes){
+ object(f,'outputFormat');
+ for(const k of Object.keys(f))if(!formatKeys.includes(k))fail('outputFormat',`알 수 없는 항목 ${k}`);
+ if(f.kind!=='lines-v1')fail('outputFormat','지원하지 않는 출력 형식입니다.');
+ const byId=new Map(nodes.map(n=>[n.id,n])),target=byId.get(f.target);
+ if(!target||!simpleOutputTypes.includes(target.type))fail('outputFormat','출력 줄이 채울 요소를 다시 고르세요.');
+ if(f.blank!==undefined&&(typeof f.blank!=='string'||!/^\S{1,4}$/.test(f.blank)))fail('outputFormat','빈 칸 기호는 공백 없는 1~4글자여야 합니다.');
+ for(const k of ['lineIndexTarget','markFoundFrom'])if(f[k]!==undefined&&(target.type!=='slot-grid'||byId.get(f[k])?.type!=='slot-grid'))fail('outputFormat','칸 묶음 옵션의 기준 요소를 다시 고르세요.');
+ if(f.markChanged!==undefined&&(typeof f.markChanged!=='boolean'||target.type!=='slot-grid'))fail('outputFormat','바뀐 칸 표시 옵션을 확인하세요.');
+ return f;
+}
+const numeric=t=>/^-?\d+(\.\d+)?$/.test(t);
+const slotTotal=d=>Number.isInteger(d?.slotCount)?d.slotCount:Array.isArray(d?.slots)?d.slots.length:0;
+const stateLabels=nodes=>{const m=new Map();for(const n of nodes)if(n.type==='state-node'){const l=n.data?.label;if(typeof l==='string'&&l&&!/\s/.test(l))m.set(l,m.has(l)?null:n.id);}return m;};
+/** Plain lines (one scene per line) -> the record steps the existing player and checks understand. */
+export function parseSimpleOutput(text,nodes,edges,f){
+ const trace=[],errors=[];
+ try{validateOutputFormat(f,nodes);}catch(error){return {trace,errors:[{line:1,message:error.message}]};}
+ if(typeof text!=='string'||new TextEncoder().encode(text).length>1048576)return {trace,errors:[{line:1,message:'출력은 1MiB 이하여야 합니다.'}]};
+ const byId=new Map(nodes.map(n=>[n.id,n])),target=byId.get(f.target),d0=target.data??{},blank=f.blank??'-';
+ const lines=text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+ if(lines.length>1000)return {trace,errors:[{line:1001,message:'1000줄 이하로 줄이세요.'}]};
+ const labels=stateLabels(nodes),lanes=nodes.filter(n=>n.type==='gantt-lane'&&ganttGroupOf(n)===ganttGroupOf(target));
+ let previous=Array.isArray(d0.slots)?[...d0.slots]:[];const rows=Array.isArray(d0.rows)?d0.rows.map(r=>[...r]):[],points=[],blocks=new Map(lanes.map(l=>[l.id,[]]));
+ lines.forEach((line,i)=>{
+  const at=`${i+1}줄`;
+  try{
+   const tokens=line.split(/\s+/),o={},highlightNodes=[];
+   const one=()=>{if(tokens.length!==1||!numeric(tokens[0]))fail(at,'숫자 하나만 쓰세요.');return Number(tokens[0]);};
+   switch(target.type){
+    case 'slot-grid':{
+     const n=slotTotal(d0);if(tokens.length>n)fail(at,`칸은 ${n}개입니다.`);
+     const slots=Array.from({length:n},(_,k)=>{const t=tokens[k];if(t===undefined||t===blank)return null;if(!numeric(t))fail(at,`칸 값은 숫자나 ${blank}만 쓸 수 있습니다.`);return Number(t);});
+     o[target.id]={slots};
+     if(f.lineIndexTarget&&i<slotTotal(byId.get(f.lineIndexTarget).data))o[f.lineIndexTarget]={activeSlotIndex:i};
+     if(f.markChanged){const changed=slots.findIndex((v,k)=>v!==(previous[k]??null));
+      if(changed>=0)o[target.id].faultSlotIndex=changed;
+      else if(f.markFoundFrom){const want=byId.get(f.markFoundFrom).data?.slots?.[i];const k=want==null?-1:slots.indexOf(want);if(k>=0)o[target.id].hitSlotIndex=k;}}
+     previous=slots;break;}
+    case 'queue-strip':o[target.id]={items:tokens.length===1&&tokens[0]===blank?[]:tokens};break;
+    case 'counter-badge':o[target.id]={value:one()};break;
+    case 'resource-square':o[target.id]={allocated:one()};break;
+    case 'text-label':o[target.id]={text:line};break;
+    case 'table-grid':{
+     const width=(Array.isArray(d0.headers)&&d0.headers.length)||rows[0]?.length||tokens.length;
+     if(tokens.length!==width)fail(at,`표의 한 행은 ${width}칸입니다.`);
+     while(rows.length<=i)rows.push(Array(width).fill(''));
+     rows[i]=tokens.map(t=>numeric(t)?Number(t):t);o[target.id]={rows:rows.map(r=>[...r]),activeRow:i};break;}
+    case 'state-node':
+     for(const t of tokens){const key=byId.get(t)?.type==='state-node'?t:labels.get(t);if(!key)fail(at,`상태 ${t}을(를) 찾을 수 없습니다.`);highlightNodes.push(key);}
+     break;
+    case 'gantt-lane':{
+     if(tokens.length!==3)fail(at,'ID 시작 종료 세 값을 쓰세요.');
+     const [who,a,b]=tokens,lane=lanes.find(l=>String(l.data?.trackId??'')===who);if(!lane)fail(at,`${who} 줄을 찾을 수 없습니다.`);
+     if(!numeric(a)||!numeric(b)||Number(b)<=Number(a)||Number(a)<0)fail(at,'시작과 종료를 확인하세요. 종료가 시작보다 커야 합니다.');
+     if(i===0)for(const l of lanes)o[l.id]={blocks:[]};
+     const colorKey=Array.isArray(lane.data?.blocks)?lane.data.blocks[0]?.colorKey:undefined,list=blocks.get(lane.id);
+     list.push({start:Number(a),end:Number(b),...(colorKey?{colorKey}:{})});
+     o[lane.id]={blocks:list.map(x=>({...x})),activeBlockIndex:list.length-1};break;}
+    case 'line-chart':{
+     if(tokens.length!==2||!numeric(tokens[0])||!numeric(tokens[1]))fail(at,'x y 두 숫자를 쓰세요.');
+     points.push({x:Number(tokens[0]),y:Number(tokens[1])});
+     const s0=Array.isArray(d0.series)&&d0.series[0]?d0.series[0]:{name:'출력',color:'#0f766e'};
+     o[target.id]={series:[{...s0,points:points.map(p=>({...p}))}],progressIndex:points.length-1,activePointIndex:points.length-1};break;}
+   }
+   const step={overrides:o,highlightNodes};safe(step,`출력 ${at}`);trace.push(step);
+  }catch(error){errors.push({line:i+1,message:error.message.startsWith(at)?error.message:`${at}: ${error.message}`});}
+ });
+ if(!errors.length)try{validateDiagramBlob({nodes,edges,referenceTrace:trace},'출력',true);}catch(error){errors.push({line:1,message:error.message});}
+ return {trace,errors};
+}
+function sceneStates(nodes,frames){
+ const values=new Map(nodes.map(n=>[n.id,{...(n.data??{})}])),out=[];
+ for(const f of frames){const o=f.nodeDataOverrides??{};for(const n of nodes){const d={...values.get(n.id)};for(const k of events[n.type]??[])d[k]=null;Object.assign(d,o[n.id]??{});values.set(n.id,d);}out.push(new Map(values));}
+ return out;
+}
+/** Scenes -> the expected plain output (one line per included scene) and why a scene cannot be written as one line. */
+export function formatSimpleOutput(nodes,frames,f){
+ const issues=[],lines=[];
+ try{validateOutputFormat(f,nodes);}catch(error){return {lines,text:'',issues:[error.message]};}
+ const byId=new Map(nodes.map(n=>[n.id,n])),target=byId.get(f.target),blank=f.blank??'-',states=sceneStates(nodes,frames??[]);
+ const lanes=nodes.filter(n=>n.type==='gantt-lane'&&ganttGroupOf(n)===ganttGroupOf(target));
+ const word=(v,scene)=>{const s=String(v??'');if(!s||/\s/.test(s))issues.push(`장면 ${scene+1}: 값 ‘${s}’에 띄어쓰기가 있거나 비어 있어 한 줄로 나눌 수 없습니다.`);return s;};
+ (frames??[]).forEach((fr,i)=>{
+  if(fr.excludeFromOutput===true)return;
+  const d=states[i].get(target.id)??{};let line=null;
+  switch(target.type){
+   case 'slot-grid':{const n=slotTotal(d);line=Array.from({length:n},(_,k)=>d.slots?.[k]==null?blank:String(d.slots[k])).join(' ');break;}
+   case 'queue-strip':line=Array.isArray(d.items)&&d.items.length?d.items.map(v=>word(v,i)).join(' '):blank;break;
+   case 'counter-badge':line=String(d.value??0);break;
+   case 'resource-square':line=String(d.allocated??0);break;
+   case 'text-label':line=String(d.text??d.label??'');if(!line.trim())issues.push(`장면 ${i+1}: 문구가 비어 있습니다.`);break;
+   case 'table-grid':if(!Number.isInteger(d.activeRow))issues.push(`장면 ${i+1}: 강조 행이 없어 출력 줄을 만들 수 없습니다.`);else line=(d.rows?.[d.activeRow]??[]).map(v=>word(v,i)).join(' ');break;
+   case 'state-node':{const ids=(fr.highlightNodes??[]).filter(id=>byId.get(id)?.type==='state-node');
+    if(!ids.length)issues.push(`장면 ${i+1}: 강조한 상태가 없습니다.`);else line=ids.map(id=>{const l=byId.get(id).data?.label;return typeof l==='string'&&l&&!/\s/.test(l)?l:id;}).join(' ');break;}
+   case 'gantt-lane':{const active=lanes.map(l=>({l,d:states[i].get(l.id)})).filter(x=>Number.isInteger(x.d?.activeBlockIndex));
+    if(active.length!==1)issues.push(`장면 ${i+1}: 강조한 간트 구간이 ${active.length?'여러 개라':'없어'} 한 줄로 쓸 수 없습니다.`);
+    else{const b=active[0].d.blocks?.[active[0].d.activeBlockIndex];line=`${word(active[0].l.data?.trackId,i)} ${b?.start} ${b?.end}`;}break;}
+   case 'line-chart':{const k=Number.isInteger(d.activePointIndex)&&d.activePointIndex>=0?d.activePointIndex:d.progressIndex;const p=d.series?.[0]?.points?.[k];
+    if(!p)issues.push(`장면 ${i+1}: 현재 점이 없어 출력 줄을 만들 수 없습니다.`);else line=`${p.x} ${p.y}`;break;}
+  }
+  if(line!==null)lines.push({scene:i,text:line});
+ });
+ return {lines,text:lines.map(l=>l.text).join('\n'),issues:[...new Set(issues)]};
 }

@@ -125,6 +125,12 @@ export function createInstance(scenarioId='ST2') {
     instance.views=[{...createView('record'),label:'참조열과 프레임',width:900,height:380},createView('annotation')];
     return instance;
   }
+  if(scenarioId==='OPT') {
+    // Same textbook string as P2 with the OPT policy; the record compares FIFO/LRU/OPT. The OPT contract has no annotation role.
+    instance.input={refs:[7,0,1,2,0,3,0,4,2,3,0,3],frameCount:3,policy:'OPT',initial:[]};
+    instance.views=[{...createView('record'),label:'세 정책 비교',width:900,height:420}];
+    return instance;
+  }
   if(scenarioId==='K-SYSCALL'||scenarioId==='K-INTERRUPT') {
     instance.views=[{...createView('record'),label:scenarioId==='K-SYSCALL'?'시스템 호출과 모드':'인터럽트와 실행 주체',width:900,height:500},createView('annotation')];
     return instance;

@@ -1,0 +1,84 @@
+"""Trusted CodeBuild orchestration, embedded in the project buildspec (not the uploaded ZIP)."""
+import os
+import re
+import shutil
+import stat
+import subprocess
+import tempfile
+import zipfile
+from pathlib import Path, PurePosixPath
+
+UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+SOURCE = re.compile(r"prob-([1-9][0-9]*)/builds/(" + UUID + r")/source\.zip")
+BUILD = re.compile(r"[A-Za-z0-9_-]+:(" + UUID + r")")
+
+
+def configuration(env):
+    key = env["S3_KEY"]
+    build = BUILD.fullmatch(env["CODEBUILD_BUILD_ID"])
+    if not SOURCE.fullmatch(key) or not build:
+        raise ValueError("Invalid build identity")
+    account, region, repo, bucket = (env[name] for name in
+        ("ACCOUNT_ID", "AWS_REGION", "ECR_REPOSITORY", "PRACTICE_SOURCE_BUCKET"))
+    if not re.fullmatch(r"[0-9]{12}", account) or not re.fullmatch(r"[a-z]{2}-[a-z]+-[0-9]+", region):
+        raise ValueError("Invalid registry configuration")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._/-]*", repo) or not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", bucket):
+        raise ValueError("Invalid repository or bucket")
+    registry = f"{account}.dkr.ecr.{region}.amazonaws.com"
+    return key, bucket, region, registry, f"{registry}/{repo}:build-{build.group(1)}"
+
+
+def unpack(archive, destination):
+    with zipfile.ZipFile(archive) as source:
+        members = source.infolist()
+        if len(members) > 2048 or sum(m.file_size for m in members) > 512 * 1024 * 1024:
+            raise ValueError("Build context too large")
+        seen = set()
+        for member in members:
+            path = PurePosixPath(member.filename)
+            mode = member.external_attr >> 16
+            if (not member.filename or "\\" in member.filename or ":" in member.filename
+                    or path.is_absolute() or ".." in path.parts
+                    or stat.S_ISLNK(mode) or (stat.S_IFMT(mode) not in (0, stat.S_IFREG, stat.S_IFDIR))
+                    or str(path) in seen):
+                raise ValueError("Unsafe ZIP entry")
+            seen.add(str(path))
+            target = destination.joinpath(*path.parts)
+            if member.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with source.open(member) as inp, target.open("xb") as out:
+                    shutil.copyfileobj(inp, out)
+                # Preserve executable scripts in legitimate Linux build contexts.
+                if mode & 0o111:
+                    target.chmod(0o755)
+    if not (destination / "Dockerfile").is_file():
+        raise ValueError("Dockerfile must be at ZIP root")
+
+
+def build_image(env, run=subprocess.run):
+    key, bucket, region, registry, image = configuration(env)
+    with tempfile.TemporaryDirectory(prefix="diveon-build-") as temp:
+        root = Path(temp)
+        archive = root / "source.zip"
+        context = root / "context"
+        context.mkdir()
+        run(["aws", "s3", "cp", f"s3://{bucket}/{key}", str(archive), "--region", region], check=True)
+        unpack(archive, context)
+        password = run(["aws", "ecr", "get-login-password", "--region", region],
+                       check=True, capture_output=True, text=True).stdout
+        run(["docker", "login", "--username", "AWS", "--password-stdin", registry],
+            input=password, text=True, check=True)
+        run(["docker", "build", "-t", image, str(context)], check=True)
+        # No post_build push or self-reported SQS success. Any failure aborts this phase.
+        run(["docker", "push", image], check=True)
+    return image
+
+
+def main():
+    build_image(os.environ)
+
+
+if __name__ == "__main__":
+    main()

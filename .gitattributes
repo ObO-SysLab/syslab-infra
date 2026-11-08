@@ -1,0 +1,32 @@
+# Preserve recorded OBO source bytes across checkout platforms.
+# Explicit paths keep unrelated files under their existing policy.
+/grader/Dockerfile text eol=lf
+/grader/grader.py text eol=crlf
+/grader/obo_assessment.py text eol=lf
+/grader/obo_checker.py text eol=lf
+/grader/obo_runtime/checker.mjs text eol=lf
+/grader/obo_runtime/contracts.mjs text eol=crlf
+/grader/obo_runtime/cpu.mjs text eol=lf
+/grader/obo_runtime/document.mjs text eol=lf
+/grader/obo_runtime/flows.mjs text eol=lf
+/grader/obo_runtime/index.mjs text eol=lf
+/grader/obo_runtime/manifest.json text eol=lf
+/grader/obo_runtime/memory.mjs text eol=lf
+/grader/obo_runtime/synchronization.mjs text eol=lf
+/grader/obo_runtime/validation.mjs text eol=lf
+/grader/runner/Dockerfile.obo-test text eol=lf
+/grader/runner/test_obo_linux.py text eol=lf
+/grader/tests/test_contest_result.py text eol=crlf
+/grader/tests/test_coordinator.py text eol=lf
+/grader/tests/test_obo_assessment.py text eol=lf
+/grader/tests/test_obo_checker.py text eol=lf
+
+# D35: preserve verified integration bytes, including mixed line endings.
+/grader/obo_runtime/freeDiagram.mjs -text
+/grader/runner/test_diagram_linux.py -text
+/grader/tests/test_diagram_output.py -text
+/.gitattributes -text
+
+# Preserve public-contract bytes and reviewed new-source evidence.
+/grader/obo_runtime/diagram-contract.json -text
+/grader/runner/diagram-fixtures.json -text

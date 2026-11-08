@@ -1,50 +1,35 @@
-const WebSocket = require('ws');
-const { spawn } = require('child_process');
+'use strict';
+const http = require('node:http');
+const { parseRequest, apiClient, authenticate } = require('./auth');
 
-const wss = new WebSocket.Server({ port: 8081, path: '/ws/terminal' });
-console.log('WebSocket server running on port 8081');
-
-wss.on('connection', (ws, req) => {
-  console.log('Client connected:', req.socket.remoteAddress);
-
-  const url = new URL(req.url, 'http://localhost');
-  const containerId = url.searchParams.get('containerId');
-
-  if (!containerId) {
-    ws.send('\r\n[ERROR] containerId가 없습니다.\r\n');
-    ws.close();
-    return;
+function createServer({ api, pty, allowedOrigin, WebSocketServer }) {
+  const origin = new URL(allowedOrigin);
+  if (origin.origin !== allowedOrigin || origin.protocol !== 'https:') {
+    throw new Error('TERMINAL_ALLOWED_ORIGIN must be an exact HTTPS origin');
   }
-
-  const shell = spawn('docker', ['exec', '-it', containerId, '/bin/bash'], {
-    env: { ...process.env, TERM: 'xterm' }
-  });
-
-  shell.stdout.on('data', (data) => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(data.toString());
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 16384, perMessageDeflate: false });
+  const server = http.createServer((_req, res) => { res.writeHead(404); res.end(); });
+  server.on('upgrade', (req, socket, head) => {
+    // Never log URLs, credentials, request headers, or PTY content.
+    socket.on('error', () => socket.destroy());
+    try {
+      const containerId = parseRequest(req, allowedOrigin);
+      wss.handleUpgrade(req, socket, head, ws => authenticate(ws, containerId, { api, pty }));
+    } catch {
+      socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
     }
   });
+  return { server, wss };
+}
 
-  shell.stderr.on('data', (data) => {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(data.toString());
-    }
+if (require.main === module) {
+  const api = apiClient({ apiUrl: process.env.TERMINAL_API_URL, serviceKey: process.env.TERMINAL_SERVICE_KEY });
+  const { server } = createServer({ api, pty: require('node-pty'),
+    WebSocketServer: require('ws').WebSocketServer,
+    allowedOrigin: process.env.TERMINAL_ALLOWED_ORIGIN });
+  server.listen(8081, process.env.TERMINAL_BIND_HOST || '127.0.0.1', () => {
+    console.log('Authenticated terminal listening on port 8081');
   });
+}
 
-  ws.on('message', (data) => {
-    shell.stdin.write(data);
-  });
-
-  ws.on('close', () => {
-    console.log('Client disconnected');
-    shell.kill();
-  });
-
-  shell.on('exit', () => {
-    console.log('Shell exited');
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.close();
-    }
-  });
-});
+module.exports = { createServer };

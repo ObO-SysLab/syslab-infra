@@ -1,5 +1,7 @@
 # VM 인프라 구성
 
+**2026-10-30 AUDIT-07:** 이미지 빌드의 최신 로컬 계약은 [CodeBuild README](codebuild/README.md)를 따른다. 요청별 S3 키·실제 빌드별 태그·digest 고정·10분 마감/누락 복구를 추가했으며 운영 미적용이다. 아래 흐름은 새 계약으로 갱신했고 과거 운영 구성표는 당시 기록이다.
+
 ## 개요
 
 실습형 문제 풀이를 위한 VM 환경 구성 기록입니다.
@@ -16,23 +18,24 @@
         ↓
 [Backend API]
   S3에 업로드
-  s3://syslab-practice-dockerfile/prob-{prob_id}/source.zip
+  s3://syslab-practice-dockerfile/prob-{prob_id}/builds/{request_uuid}/source.zip
         ↓
 [EventBridge Rule 1] — S3 이벤트 감지
   → CodeBuild 자동 시작
         ↓
 [CodeBuild] — buildspec.yml 실행
-  → PROB_ID 추출 (CODEBUILD_SOURCE_REPO_URL 파싱)
+  → S3_KEY로 요청 식별, CODEBUILD_BUILD_ID로 빌드 식별
   → docker build / docker push
-  → ECR: syslab-practice:prob-{prob_id}
+  → ECR: syslab-practice:build-{codebuild_uuid}
         ↓
-[EventBridge Rule 2] — CodeBuild 완료 감지
+[EventBridge Rule 2] — CodeBuild 모든 상태 변경 감지
   → SQS: syslab-practice-build-queue에 결과 메시지 적재
         ↓
 [Backend Worker] — 5초마다 폴링
-  → source.location에서 prob_id 추출
-  → SUCCEEDED → image_status = READY, ecr_image_uri 저장
-  → FAILED    → image_status = FAILED, build_log_url 저장
+  → build-id로 CodeBuild API 재조회, 현재 요청 S3_KEY/빌드 ID 대조
+  → SUCCEEDED + ECR digest 확인 → READY, digest URI 저장
+  → FAILED/FAULT/STOPPED/TIMED_OUT → FAILED
+  → 30초 재조회/만료 처리, 요청 후 10분 마감
 
 [사용자]
   "VM 생성" 클릭

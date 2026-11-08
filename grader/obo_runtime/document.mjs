@@ -119,6 +119,10 @@ export function createInstance(scenarioId='ST2') {
     instance.views=[{...createView('record'),label:'프로세스 간 통신',width:900,height:500},createView('annotation')];
     return instance;
   }
+  if(scenarioId==='K-SYSCALL'||scenarioId==='K-INTERRUPT') {
+    instance.views=[{...createView('record'),label:scenarioId==='K-SYSCALL'?'시스템 호출과 모드':'인터럽트와 실행 주체',width:900,height:500},createView('annotation')];
+    return instance;
+  }
   for(const role of registry[scenarioId].metadata.elements) {
     if(['S3','BK','DP'].includes(scenarioId)&&['actor','resource'].includes(role))for(const target of entities[role])instance.views.push(createView(role,target,instance.views.length));
     else instance.views.push(createView(role,null,instance.views.length));

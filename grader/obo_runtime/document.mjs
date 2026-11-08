@@ -125,6 +125,12 @@ export function createInstance(scenarioId='ST2') {
     instance.views=[{...createView('record'),label:'참조열과 프레임',width:900,height:380},createView('annotation')];
     return instance;
   }
+  if(scenarioId==='P3') {
+    // Textbook Belady string: FIFO with 3 vs 4 frames gives 9 vs 10 misses. The memory role shows one row per frame count.
+    instance.input={refs:[1,2,3,4,1,2,5,1,2,3,4,5],capacities:[3,4],policy:'FIFO'};
+    instance.views=[{...createView('memory'),label:'프레임 수별 비교',width:900,height:420},createView('annotation')];
+    return instance;
+  }
   if(scenarioId==='OPT') {
     // Same textbook string as P2 with the OPT policy; the record compares FIFO/LRU/OPT. The OPT contract has no annotation role.
     instance.input={refs:[7,0,1,2,0,3,0,4,2,3,0,3],frameCount:3,policy:'OPT',initial:[]};

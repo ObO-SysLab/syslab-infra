@@ -63,6 +63,10 @@ export function createInstance(scenarioId='ST2') {
     instance.views=[{...createView('record'),label:'프로세스와 스레드',width:900,height:500},createView('annotation')];
     return instance;
   }
+  if(scenarioId==='TLB') {
+    instance.views=[{...createView('record'),label:'주소 변환 경로',width:900,height:500},createView('annotation')];
+    return instance;
+  }
   for(const role of registry[scenarioId].metadata.elements) {
     if(['S3','BK','DP'].includes(scenarioId)&&['actor','resource'].includes(role))for(const target of entities[role])instance.views.push(createView(role,target,instance.views.length));
     else instance.views.push(createView(role,null,instance.views.length));

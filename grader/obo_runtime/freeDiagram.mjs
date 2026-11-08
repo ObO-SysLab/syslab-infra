@@ -62,7 +62,7 @@ export function validateDiagramElement(type,d,p='data'){
   const a=list(d.slots??[],`${p}.slots`,64),n=num(d.slotCount??a.length,`${p}.slotCount`,0,64,true);if(a.length>n)fail(p,'칸 개수보다 값이 많습니다.');a.forEach(x=>{if(x!==null)num(x,`${p}.slots`);});for(const k of events[type])optionalIndex(d,k,n,p);break;
  }
  case 'gantt-lane':{
-  const a=list(d.blocks??[],`${p}.blocks`);a.forEach((b,i)=>{object(b,`${p}.blocks[${i}]`);num(b.start,p,0);num(b.end,p,b.start);if(b.end<=b.start)fail(p,'구간 종료는 시작보다 커야 합니다.');});optionalIndex(d,'activeBlockIndex',a.length,p);break;
+  const a=list(d.blocks??[],`${p}.blocks`);a.forEach((b,i)=>{object(b,`${p}.blocks[${i}]`);num(b.start,p,0);num(b.end,p,b.start);if(b.end<=b.start)fail(p,'구간 종료는 시작보다 커야 합니다.');});optionalIndex(d,'activeBlockIndex',a.length,p);if(d.axisEnd!=null)num(d.axisEnd,`${p}.axisEnd`,0);break;
  }
  case 'memory-range':{
   const start=num(d.start??0,`${p}.start`,0,Number.MAX_SAFE_INTEGER,true),size=num(d.size??16,`${p}.size`,1,Number.MAX_SAFE_INTEGER,true);

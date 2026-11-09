@@ -87,7 +87,7 @@ class CoordinatorTest(unittest.TestCase):
             self.scope['main']()
             args = self.scope['finalize_submission'].call_args.args
             self.assertEqual('CORRECT', args[1])
-            self.assertEqual([{'caseIndex': 1, 'kind': 'diagram', 'stdout': 'answer\n'}] if sample else [], args[5])
+            self.assertEqual([{'caseIndex': 1, 'kind': 'diagram', 'stdout': 'answer\n', 'correct': True}] if sample else [], args[5])
 
     def test_semantic_grading_uses_model_result_not_text_output(self):
         snapshot = self.use_revision('obo-v1')

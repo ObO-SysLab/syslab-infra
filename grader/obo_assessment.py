@@ -74,6 +74,16 @@ def semantic_verdict(snapshot, case_index, stdout):
         if verdict.get('kind') not in ('correct', 'wrong') or type(verdict.get('correct')) is not bool:
             raise OboCheckerError('Invalid RR verdict')
         return verdict
+    if question.get('ioFormat') == 'text-v1':
+        # Baekjoon-style text (2026-11-08): stdin is the model's text input, stdout is compared line by line.
+        if question.get('assessmentMode') != 'result':
+            raise OboCheckerError('Invalid text grading contract')
+        verdict = invoke({'operation': 'textGrade', 'scenarioId': instances[0]['scenarioId'],
+                          'input': snapshot['testcases'][case_index]['input'], 'stdout': stdout})
+        if verdict.get('kind') not in ('correct', 'wrong') or type(verdict.get('correct')) is not bool:
+            raise OboCheckerError('Invalid text verdict')
+        verdict.pop('ok', None)
+        return verdict
     # Each testcase's stdin is its complete model input; UI inputs are explanation presets only.
     case_input = strict_json(snapshot['testcases'][case_index]['input'])
     return grade_output(instances[0]['scenarioId'], case_input, question.get('assessmentMode'), stdout)
@@ -86,6 +96,12 @@ def public_record(snapshot, case_index, verdict):
     document = snapshot['obo']['simulation']
     instance = next(item for item in document['instances'] if item['id'] == document['question']['gradingInstanceId'])
     rr = document['question'].get('ioFormat') == 'rr-segments-v1'
+    if document['question'].get('ioFormat') == 'text-v1':
+        parsed = invoke({'operation': 'textReference', 'scenarioId': instance['scenarioId'], 'input': case['input']})
+        return dict(caseIndex=case_index + 1, kind='text-lines', scenarioId=instance['scenarioId'], input=parsed['input'],
+                    inputText=case['input'], reference=parsed['reference'], expected=parsed['expected'],
+                    reported=verdict.get('reported'), correct=verdict['correct'], traceValid=False,
+                    message=verdict.get('message', ''))
     if rr:
         parsed = invoke({'operation': 'rrReference', 'input': case['input']})
         model_input, reference = parsed['input'], parsed['reference']
@@ -101,8 +117,26 @@ def public_record(snapshot, case_index, verdict):
                 traceValid=verdict['traceValid'], message=verdict.get('message', ''), **({'kind':'rr-schedule'} if rr else {}))
 
 
-def public_diagram_record(snapshot, case_index, stdout):
-    """Public execution output for replay only; never changes text-v1 grading."""
+def first_wrong_line(actual, expected):
+    """First output line that differs, read like grader.compare_output (outer blank lines and line-end spaces ignored).
+
+    None when the outputs match; the shorter length when one only runs out. Only the position is published, never
+    the expected line (2026-11-09 learner-playback).
+    """
+    mine = [line.rstrip() for line in actual.strip().splitlines()]
+    want = [line.rstrip() for line in expected.strip().splitlines()]
+    for index, (a, b) in enumerate(zip(mine, want)):
+        if a != b:
+            return index
+    return None if len(mine) == len(want) else min(len(mine), len(want))
+
+
+def public_diagram_record(snapshot, case_index, stdout, expected=None, correct=None):
+    """Public execution output for replay only; never changes text-v1 grading.
+
+    With the case's expected output and verdict, the record also says whether it was right and, if not, where the
+    first wrong line is, so the learner's replay can stop there without showing the answer.
+    """
     if not snapshot or (snapshot.get('obo') or {}).get('mode') != 'coding_diff':
         return None
     case = snapshot['testcases'][case_index]
@@ -110,4 +144,9 @@ def public_diagram_record(snapshot, case_index, stdout):
         return None
     if len(stdout.encode('utf-8')) > 1048576:
         return {'caseIndex': case_index + 1, 'kind': 'diagram', 'omitted': '출력 재생 기록이 1MiB를 초과했습니다.'}
-    return {'caseIndex': case_index + 1, 'kind': 'diagram', 'stdout': stdout}
+    record = {'caseIndex': case_index + 1, 'kind': 'diagram', 'stdout': stdout}
+    if correct is not None:
+        record['correct'] = bool(correct)
+        if not correct and expected is not None:
+            record['firstWrong'] = first_wrong_line(stdout, expected)
+    return record

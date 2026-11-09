@@ -386,7 +386,7 @@ def main():
                         public_records.append({'caseIndex': case_index + 1, 'omitted': '표시 기록의 전체 용량 한도를 초과했습니다.'})
             else:
                 correct = compare_output(actual, expected)
-                record = public_diagram_record(snapshot, case_index, actual)
+                record = public_diagram_record(snapshot, case_index, actual, expected, correct)
                 if record is not None:
                     size = len(json.dumps(record, ensure_ascii=False).encode('utf-8'))
                     if public_bytes + size <= 16 * 1048576:

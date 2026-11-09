@@ -2,16 +2,17 @@
   "modelVersion": 1,
   "files": {
     "index.mjs": "47d4a3c5a9b458af56de66c23ad62deb80f93bd3388b3445530a0a0596f1e39c",
-    "contracts.mjs": "57dad633e19766d87b709cd66dee2eeb089f159c126d9af5c77cfb2ff6812ecd",
-    "diagram-contract.json": "ef157de32ce1e881b8399db36d2a324b5f0714565a55fda462b414b14a518c26",
+    "contracts.mjs": "5ae76845224a3297b678d84f639d16e619cc9663a2cf8a9ba713922a818e21da",
+    "diagram-contract.json": "2fb19e688a6f158cbd6fe117d27665319a2ce5f279c99beac3060edbf5eacff5",
     "validation.mjs": "a991986fbe674a51cc68cab9f3825eef604f180044ba3851777f27436626020b",
     "cpu.mjs": "82214711c88ee7f91ea045e3c2d8cf3dbd4c20a2b59f840c17f93486510bde23",
     "rrText.mjs": "e437cf0bb8775e18c4b3be686c2007b01fd43b0064b20515a0b36441096e1d02",
     "memory.mjs": "684235430aa381895c9925e63d46f811bf58b467f2346e288fe22c017e52ddec",
     "flows.mjs": "ed3ba696248498b9b665a9a37b277f44d9c95f7fa943271a6b2c9f78619d5763",
     "synchronization.mjs": "77483e89cd4b7b9636e88df7017616af92110c17657b73fff6260c893dd858f2",
-    "document.mjs": "722eb4688819238e3ee1bdfde94ddb856c0993a7c4917299ebef37f2880044e8",
-    "freeDiagram.mjs": "abf0ecb74c56dd7974fe6353cfb37e146e7e361154b3cf4ff50199503fe7b33f",
-    "checker.mjs": "1d2706f4691ac9d2dd264fad37fb06bd90a59a29de95f5c5f8a29801e9cb3dd8"
+    "document.mjs": "0830954c3a88e48e2a884768eacd22e4347c2d9b38137e6b0360c8ac5bf0c5a3",
+    "freeDiagram.mjs": "e71e0ebe41556fca2804ff2b3ac7f2963c503d309bd319cde8b50ad742483cd9",
+    "checker.mjs": "7eb1d032834a582e9384aff598354229876a18449df126d92effe9251c23d4ae",
+    "textFormats.mjs": "8fe5e42f45a929a43787eb55f17b08e3e237852830552699b39ef69c43ab1b50"
   }
 }

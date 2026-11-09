@@ -3,6 +3,7 @@ import {grade,run,parseBoundedJson,checkShape,registry} from './index.mjs';
 import {validateDocument} from './document.mjs';
 import {validateFreeDiagram} from './freeDiagram.mjs';
 import {referenceRrText,gradeRrText} from './rrText.mjs';
+import {textReference,gradeText} from './textFormats.mjs';
 let size=0;const chunks=[];
 try {
   for await(const chunk of process.stdin){size+=chunk.length;if(size>8*1048576)throw Error('요청 크기 초과');chunks.push(chunk);}
@@ -11,6 +12,11 @@ try {
     const grading=request.operation==='rrGrade';
     checkShape({type:'object',required:['operation','input',...(grading?['stdout']:[])],properties:{operation:{enum:['rrReference','rrGrade']},input:{type:'string'},...(grading?{stdout:{type:'string'}}:{})},additionalProperties:false},request);
     process.stdout.write(JSON.stringify({ok:true,...(grading?gradeRrText(request.input,request.stdout):referenceRrText(request.input))}));
+  }else if(request.operation==='textReference'||request.operation==='textGrade'){
+    // Baekjoon-style text input/output for every rule model (text-v1, 2026-11-08).
+    const grading=request.operation==='textGrade';
+    checkShape({type:'object',required:['operation','scenarioId','input',...(grading?['stdout']:[])],properties:{operation:{enum:['textReference','textGrade']},scenarioId:{type:'string'},input:{type:'string'},...(grading?{stdout:{type:'string'}}:{})},additionalProperties:false},request);
+    process.stdout.write(JSON.stringify({ok:true,...(grading?gradeText(request.scenarioId,request.input,request.stdout):textReference(request.scenarioId,request.input))}));
   }else if(request.operation==='validateFreeDiagram') {
     validateFreeDiagram(request.document);
     process.stdout.write(JSON.stringify({ok:true}));

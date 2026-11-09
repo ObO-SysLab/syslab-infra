@@ -42,6 +42,13 @@ class TextAssessmentTest(unittest.TestCase):
     def test_malformed_output_is_wrong_not_an_infrastructure_failure(self):
         v=semantic_verdict(self.snapshot(),0,'');self.assertFalse(v['correct'])
         v=semantic_verdict(self.snapshot(),0,'x'*100);self.assertFalse(v['correct'])
+    def test_inputs_that_needed_json_before(self):
+        # 2026-11-09: DP order finding (any order reaching every goal at its last action) and a PC initial buffer line.
+        dp = self.snapshot('DP', '3 ordered findSchedule\nA B C\n0 0 0\n1 1 1\ngoal 1 1 1\n60\n' + ' '.join(['A', 'B', 'C'] * 20))
+        self.assertTrue(semantic_verdict(dp, 0, ' '.join(['C', 'B', 'A'] * 9))['correct'])
+        self.assertFalse(semantic_verdict(dp, 0, 'A B C')['correct'])
+        pc = self.snapshot('PC', '2 correct\n2\nP producer\nC consumer\n5\nC C C C P\ninitial 1 A')
+        self.assertTrue(semantic_verdict(pc, 0, 'C acquire\nC acquire\nC take\nC release\nP acquire\n0')['correct'])
     def test_text_format_only_grades_results(self):
         with self.assertRaises(OboCheckerError):semantic_verdict(self.snapshot(mode='process'),0,P2_OUTPUT)
 

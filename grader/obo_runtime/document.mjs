@@ -301,7 +301,7 @@ export function validateDocument(document,{execute=true}={}) {
     ensure(q.judgeProfile==='obo-v1'&&q.assessmentMode==='result'&&selected,'텍스트 입출력은 의미 채점의 결과 검사에서만 사용할 수 있습니다.');inputToText(selected.scenarioId,selected.input);
   }
   if(q.judgeProfile==='obo-v1'){
-    const selected=document.instances.find(i=>i.id===q.gradingInstanceId);ensure(selected,'채점할 실행을 선택하세요.');ensure(!(selected.scenarioId==='DP'&&selected.input.mode==='findSchedule'&&q.assessmentMode!=='process'),'유효 일정 찾기는 과정형만 지원합니다.');
+    const selected=document.instances.find(i=>i.id===q.gradingInstanceId);ensure(selected,'채점할 실행을 선택하세요.');ensure(!(selected.scenarioId==='DP'&&selected.input.mode==='findSchedule'&&q.assessmentMode!=='process'&&q.ioFormat!==TEXT_FORMAT),'유효 일정 찾기는 과정형 또는 백준식 텍스트에서만 지원합니다.');
   }
   ensure(document.explanations&&Array.isArray(document.explanations.common)&&document.explanations.choices&&typeof document.explanations.choices==='object','해설 연결을 확인하세요.');
   const ids=new Set(document.instances.map(i=>i.id));

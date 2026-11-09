@@ -116,7 +116,7 @@ export function validateDiagramBlob(blob,p='diagram',trace=false){
 export function validateFreeDiagram(document){
  object(document,'OBO');safe(document,'OBO');
  if(new TextEncoder().encode(JSON.stringify(document)).length>1048576)fail('OBO','문서는 1MiB 이하여야 합니다.');
- if(document.schemaVersion!==undefined)fail('OBO','자유 그림의 schemaVersion을 확인하세요.');
+ if(document.schemaVersion!==undefined)fail('OBO','자유 모드 그림의 schemaVersion을 확인하세요.');
  if(document.mode===undefined)validateDiagramBlob(document);
  else if(document.mode==='single')validateDiagramBlob(document.single,'single');
  else if(document.mode==='per_choice'){object(document.perChoice,'perChoice');for(const [key,blob]of Object.entries(document.perChoice)){id(key,'perChoice');validateDiagramBlob(blob,`perChoice.${key}`);}}

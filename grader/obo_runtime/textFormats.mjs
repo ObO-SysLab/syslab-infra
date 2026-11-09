@@ -24,12 +24,20 @@ function reader(text){
   count(label,max=1000){return r.int(r.line(1,label)[0],label,0,max);},
   end(){if(at!==lines.length)fail(`${at+1}번째 줄부터 남는 줄이 있습니다.`);},
   atEnd(){return at>=lines.length;},
+  peek(){return at<lines.length?lines[at]:null;},
+  pairs(tokens,label){if(tokens.length%2)fail(`${at}번째 줄: ${label} 이름과 값의 수가 맞지 않습니다.`);const o={};for(let i=0;i<tokens.length;i+=2)o[r.id(tokens[i],`${label} 이름`)]=r.value(tokens[i+1]);return o;},
  };
  return r;
 }
 const word=v=>{const s=v===null?'-':String(v);if(!s||/\s/.test(s))fail(`값 ‘${s}’에 공백이 있어 텍스트 형식으로 쓸 수 없습니다. JSON 형식을 쓰세요.`);return s;};
 const join=(...parts)=>parts.flat().map(word).join(' ');
 const need=(condition,message)=>{if(!condition)fail(`텍스트 형식으로 쓸 수 없는 입력입니다: ${message}. JSON 형식을 쓰세요.`);};
+/** A value written as a token must read back as the same value (2026-11-09): "7", "true", "-" as strings would not. */
+const val=v=>{need(!(typeof v==='string'&&(/^-?\d+$/.test(v)||v==='true'||v==='false'||v==='-')),`문자열 값 ‘${v}’은(는) 숫자·참거짓·빈 값과 구분되지 않음`);return v;};
+const named=o=>Object.entries(o).flatMap(([k,v])=>{need(ID.test(k),`이름 ${k}은(는) 영문자로 시작해야 함`);return [k,val(v)];});
+/** Context switch and kernel contexts: pc first, then any other registers as name value pairs (2026-11-09). */
+const withPc=(id,o)=>{need(Number.isSafeInteger(o.pc)&&o.pc>=0,'0 이상의 정수 pc가 필요함');const{pc,...rest}=o;return join(id,pc,named(rest));};
+const readPc=(r,t)=>({pc:r.int(t[1],'pc',0,BIG),...r.pairs(t.slice(2),'레지스터')});
 
 /* ── CPU scheduling: segments compared by meaning (merge/split, idle) ─ */
 const cpuPolicies={G2:['FCFS','SJF','SRTF'],RR:['RR'],PS:['PS','PS-P']};
@@ -91,10 +99,10 @@ const formats={
   expected(run){return run.events.map(e=>join(e.actor,e.data.before,e.data.after));},
  },
  CS:{
-  inputHelp:'첫 줄은 프로세스 수 N, 다음 N줄은 “ID pc”입니다. 다음 줄은 처음 실행할 ID, 다음 줄은 교환 수 M, 마지막 줄은 교환할 순서 M개입니다.',
+  inputHelp:'첫 줄은 프로세스 수 N, 다음 N줄은 “ID pc [레지스터이름 값 …]”입니다. 다음 줄은 처음 실행할 ID, 다음 줄은 교환 수 M, 마지막 줄은 교환할 순서 M개입니다.',
   outputHelp:'교환마다 “저장한ID 복원한ID 복원한pc”를 씁니다.',
-  toText(x){const ids=Object.keys(x.pcbs);for(const i of ids)need(Object.keys(x.pcbs[i]).join()==='pc','레지스터는 pc 하나만');return [String(ids.length),...ids.map(i=>join(i,x.pcbs[i].pc)),x.initialId,String(x.order.length),join(x.order)].join('\n');},
-  parse(text){const r=reader(text),pcbs={};for(let i=r.count('프로세스 수',32);i>0;i--){const t=r.line(2,'ID pc');pcbs[r.id(t[0],'ID')]={pc:r.int(t[1],'pc',0,BIG)};}
+  toText(x){const ids=Object.keys(x.pcbs);return [String(ids.length),...ids.map(i=>withPc(i,x.pcbs[i])),x.initialId,String(x.order.length),join(x.order)].join('\n');},
+  parse(text){const r=reader(text),pcbs={};for(let i=r.count('프로세스 수',32);i>0;i--){const t=r.lineAtLeast(2,'ID pc');pcbs[r.id(t[0],'ID')]=readPc(r,t);}
    const initialId=r.id(r.line(1,'처음 ID')[0],'처음 ID'),m=r.count('교환 수');const order=m?r.line(m,'교환 순서').map(v=>r.id(v,'ID')):[];r.end();return {pcbs,initialId,order};},
   expected(run){const out=[];let saved=null;for(const e of run.events){if(e.kind==='save')saved=e.actor;if(e.kind==='select')out.push(join(saved,e.actor,e.data.registers.pc));}return out;},
  },
@@ -118,45 +126,56 @@ const formats={
   expected(run,input){return Object.keys(input.quotas).map(i=>{const p=run.result.processes[i];return join(i,p.faults,p.workingSet);});},
  },
  TLB:{
-  inputHelp:'첫 줄은 페이지 크기, TLB 칸 수, 페이지 수 P입니다. 둘째 줄은 페이지 0부터의 프레임 번호 P개(메모리에 없으면 -), 셋째 줄은 주소 수 A, 넷째 줄은 가상 주소 A개입니다.',
+  inputHelp:'첫 줄은 페이지 크기, TLB 칸 수, 페이지 수 P입니다. 둘째 줄은 페이지 0부터의 프레임 번호 P개(메모리에 없으면 -), 셋째 줄은 주소 수 A, 넷째 줄은 가상 주소 A개입니다. 처음 TLB에 내용이 있으면 마지막 줄에 “tlb K 페이지 프레임 …”을 씁니다.',
   outputHelp:'주소마다 “Hit|Miss 물리주소”를 씁니다. Hit/Miss는 TLB 조회 결과이고, 페이지가 메모리에 없으면 물리주소 자리에 -를 씁니다.',
-  toText(x){need(!x.initialTlb?.length,'초기 TLB 내용');return [join(x.pageSize,x.capacity,x.table.length),join(x.table),String(x.addresses.length),join(x.addresses)].join('\n');},
+  toText(x){const tlb=x.initialTlb??[];return [join(x.pageSize,x.capacity,x.table.length),join(x.table),String(x.addresses.length),...(x.addresses.length?[join(x.addresses)]:[]),...(tlb.length?[join('tlb',tlb.length,tlb.flatMap(e=>[e.page,e.frame]))]:[])].join('\n');},
   parse(text){const r=reader(text),h=r.line(3,'페이지 크기 TLB 칸 수 페이지 수'),p=r.int(h[2],'페이지 수',1,4096);
    const table=r.line(p,'페이지 표').map(v=>v==='-'?null:r.int(v,'프레임',0,BIG)),a=r.count('주소 수');const addresses=a?r.line(a,'주소').map(v=>r.int(v,'주소',0,BIG)):[];
-   r.end();return {addresses,pageSize:r.int(h[0],'페이지 크기',1,BIG),table,capacity:r.int(h[1],'TLB 칸 수',0,256),initialTlb:[]};},
+   let initialTlb=[];if(!r.atEnd()){const t=r.lineAtLeast(2,'처음 TLB');r.word(t[0],['tlb'],'마지막 줄');const k=r.int(t[1],'처음 TLB 칸 수',0,256);if(t.length!==2+2*k)fail('처음 TLB의 페이지·프레임 수가 맞지 않습니다.');
+    initialTlb=Array.from({length:k},(_,i)=>({page:r.int(t[2+2*i],'페이지',0,BIG),frame:r.int(t[3+2*i],'프레임',0,BIG)}));}
+   r.end();return {addresses,pageSize:r.int(h[0],'페이지 크기',1,BIG),table,capacity:r.int(h[1],'TLB 칸 수',0,256),initialTlb};},
   expected(run){return run.result.translations.map(t=>join(t.hit?'Hit':'Miss',t.fault?'-':t.physical));},
  },
  MF:{
-  inputHelp:'첫 줄은 전체 크기와 배치 정책(first·best·worst), 둘째 줄은 작업 수 K, 다음 K줄은 “alloc ID 크기” 또는 “free ID”입니다. 처음에는 전체가 비어 있습니다.',
+  inputHelp:'첫 줄은 전체 크기와 배치 정책(first·best·worst), 둘째 줄은 작업 수 K, 다음 K줄은 “alloc ID 크기” 또는 “free ID”입니다. 처음에는 전체가 비어 있고, 처음부터 차 있는 구간이 있으면 마지막에 “initial B”와 B줄 “시작 크기 소유자”(빈 구간은 -)를 씁니다.',
   outputHelp:'작업마다 할당이면 “ID 시작주소”(실패하면 “ID FAIL”), 해제면 “ID FREE”를 씁니다.',
-  toText(x){need(x.initial.length===1&&x.initial[0].owner===null&&x.initial[0].start===0&&x.initial[0].size===x.total,'처음 메모리는 전체가 빈 한 구간');
-   return [join(x.total,x.policy),String(x.operations.length),...x.operations.map(o=>o.op==='alloc'?join('alloc',o.id,o.size):join('free',o.id))].join('\n');},
+  toText(x){const empty=x.initial.length===1&&x.initial[0].owner===null&&x.initial[0].start===0&&x.initial[0].size===x.total;
+   return [join(x.total,x.policy),String(x.operations.length),...x.operations.map(o=>o.op==='alloc'?join('alloc',o.id,o.size):join('free',o.id)),
+    ...(empty?[]:[join('initial',x.initial.length),...x.initial.map(b=>join(b.start,b.size,b.owner))])].join('\n');},
   parse(text){const r=reader(text),h=r.line(2,'전체 크기 정책'),total=r.int(h[0],'전체 크기',1,BIG),policy=r.word(h[1],['first','best','worst'],'정책');
    const operations=Array.from({length:r.count('작업 수')},()=>{const t=r.lineAtLeast(2,'작업'),op=r.word(t[0],['alloc','free'],'작업');
     if(op==='alloc'){if(t.length!==3)fail('alloc 줄은 “alloc ID 크기”입니다.');return {op,id:r.id(t[1],'ID'),size:r.int(t[2],'크기',1,BIG)};}
     if(t.length!==2)fail('free 줄은 “free ID”입니다.');return {op,id:r.id(t[1],'ID')};});
-   r.end();return {total,initial:[{start:0,size:total,owner:null}],operations,policy};},
+   let initial=[{start:0,size:total,owner:null}];
+   if(!r.atEnd()){const h2=r.line(2,'처음 메모리');r.word(h2[0],['initial'],'처음 메모리 줄');initial=Array.from({length:r.int(h2[1],'구간 수',0,1000)},()=>{const b=r.line(3,'시작 크기 소유자');return {start:r.int(b[0],'시작',0,BIG),size:r.int(b[1],'크기',1,BIG),owner:b[2]==='-'?null:r.id(b[2],'소유자')};});}
+   r.end();return {total,initial,operations,policy};},
   expected(run,input){return run.events.map(e=>{const o=input.operations[e.data.index];if(o.op==='free')return join(o.id,'FREE');if(!e.data.success)return join(o.id,'FAIL');return join(o.id,e.data.blocks.find(b=>b.owner===o.id).start);});},
  },
  S3:{
-  inputHelp:'첫 줄은 프로세스 수 P와 자원 종류 수 R, 둘째 줄은 프로세스 ID P개, 셋째 줄은 자원 ID R개, 넷째 줄은 자원별 개수 R개, 다섯째 줄은 동작 수 A, 다음 A줄은 “request|release ID 개수1 … 개수R”입니다.',
+  inputHelp:'첫 줄은 프로세스 수 P와 자원 종류 수 R, 둘째 줄은 프로세스 ID P개, 셋째 줄은 자원 ID R개, 넷째 줄은 자원별 개수 R개, 다섯째 줄은 동작 수 A, 다음 A줄은 “request|release ID 개수1 … 개수R”입니다. 처음부터 할당·대기 요청이 있으면 마지막에 “allocated”와 P줄, “requests”와 P줄을 씁니다.',
   outputHelp:'마지막에 교착이면 “DEADLOCK ID…”(순서 무관), 아니면 “NONE” 한 줄을 씁니다.',
-  toText(x){need([...x.allocated,...x.requests].flat().every(v=>v===0),'처음 할당·요청은 모두 0');
-   return [join(x.actors.length,x.resources.length),join(x.actors),join(x.resources),join(x.available),String(x.actions.length),...x.actions.map(a=>join(a.op,a.actor,a.values))].join('\n');},
+  toText(x){const used=m=>m.flat().some(v=>v!==0),rows=(word,m)=>used(m)?[word,...m.map(r=>join(r))]:[];
+   return [join(x.actors.length,x.resources.length),join(x.actors),join(x.resources),join(x.available),String(x.actions.length),...x.actions.map(a=>join(a.op,a.actor,a.values)),
+    ...rows('allocated',x.allocated),...rows('requests',x.requests)].join('\n');},
   parse(text){const r=reader(text),h=r.line(2,'P R'),p=r.int(h[0],'P',1,32),k=r.int(h[1],'R',1,16);
    const actors=r.line(p,'프로세스').map(v=>r.id(v,'ID')),resources=r.line(k,'자원').map(v=>r.id(v,'자원')),available=r.line(k,'개수').map(v=>r.int(v,'개수',0,BIG));
    const actions=Array.from({length:r.count('동작 수')},()=>{const t=r.line(k+2,'동작');return {op:r.word(t[0],['request','release'],'동작'),actor:r.id(t[1],'ID'),values:t.slice(2).map(v=>r.int(v,'개수',0,BIG))};});
-   r.end();const zero=()=>actors.map(()=>resources.map(()=>0));return {actors,resources,available,allocated:zero(),requests:zero(),actions};},
+   const zero=()=>actors.map(()=>resources.map(()=>0)),matrices={allocated:zero(),requests:zero()};
+   while(!r.atEnd()){const w=r.word(r.line(1,'추가 묶음')[0],['allocated','requests'],'추가 묶음');matrices[w]=actors.map(()=>r.line(k,w).map(v=>r.int(v,'개수',0,BIG)));}
+   r.end();return {actors,resources,available,...matrices,actions};},
   expected(run){return [run.result.deadlocked.length?join('DEADLOCK',run.result.deadlocked):'NONE'];},
   compare(expected,actual){const norm=l=>l.map(t=>t[0]==='DEADLOCK'?['DEADLOCK',...[...t.slice(1)].sort()]:t);return JSON.stringify(norm(expected))===JSON.stringify(norm(actual));},
  },
  PC:{
-  inputHelp:'첫 줄은 버퍼 크기와 정책(correct·lock-first), 둘째 줄은 주체 수 A, 다음 A줄은 “ID producer|consumer”, 다음 줄은 행동 수 M, 마지막 줄은 행동할 ID 순서 M개입니다.',
+  inputHelp:'첫 줄은 버퍼 크기와 정책(correct·lock-first), 둘째 줄은 주체 수 A, 다음 A줄은 “ID producer|consumer”, 다음 줄은 행동 수 M, 다음 줄은 행동할 ID 순서 M개입니다. 처음 버퍼에 항목이 있으면 마지막 줄에 “initial K 항목…”을 씁니다.',
   outputHelp:'행동마다 “ID 결과”(wait·acquire·put·take·release 등 그 순간 한 일)를 쓰고, 마지막 줄에 버퍼에 남은 항목 수를 씁니다.',
-  toText(x){need(!x.initial?.length,'처음 버퍼 내용');return [join(x.capacity,x.policy),String(x.actors.length),...x.actors.map(a=>join(a.id,a.role)),String(x.order.length),join(x.order)].join('\n');},
+  toText(x){const first=x.initial??[];return [join(x.capacity,x.policy),String(x.actors.length),...x.actors.map(a=>join(a.id,a.role)),String(x.order.length),...(x.order.length?[join(x.order)]:[]),
+   ...(first.length?[join('initial',first.length,first.map(val))]:[])].join('\n');},
   parse(text){const r=reader(text),h=r.line(2,'크기 정책'),capacity=r.int(h[0],'버퍼 크기',1,64),policy=r.word(h[1],['correct','lock-first'],'정책');
    const actors=Array.from({length:r.count('주체 수',32)},()=>{const t=r.line(2,'ID 역할');return {id:r.id(t[0],'ID'),role:r.word(t[1],['producer','consumer'],'역할')};});
-   const m=r.count('행동 수');const order=m?r.line(m,'행동 순서').map(v=>r.id(v,'ID')):[];r.end();return {capacity,initial:[],actors,order,policy};},
+   const m=r.count('행동 수');const order=m?r.line(m,'행동 순서').map(v=>r.id(v,'ID')):[];let initial=[];
+   if(!r.atEnd()){const t=r.lineAtLeast(2,'처음 버퍼');r.word(t[0],['initial'],'마지막 줄');const k=r.int(t[1],'처음 항목 수',0,capacity);if(t.length!==2+k)fail('처음 항목 수와 값 수가 다릅니다.');initial=t.slice(2).map(v=>r.value(v));}
+   r.end();return {capacity,initial,actors,order,policy};},
   expected(run){return [...run.events.map(e=>join(e.actor,e.kind)),String(run.result.buffer.length)];},
  },
  BK:{
@@ -182,21 +201,30 @@ const formats={
   },
  },
  DP:{
-  inputHelp:'첫 줄은 철학자 수 N, 정책(left·ordered·admission), 방식 fixedSchedule입니다. 둘째 줄은 ID N개, 셋째 줄은 생각 시간 N개, 넷째 줄은 식사 시간 N개, 다섯째 줄은 행동 수 M, 마지막 줄은 행동 순서 M개입니다.',
-  outputHelp:'철학자마다 입력 순서대로 “ID 상태”를 쓰고, 마지막 줄에 멈춘 이유를 씁니다.',
-  toText(x){need(x.mode==='fixedSchedule','유효 일정 찾기는 과정 채점(JSON)에서만');need(!Object.keys(x.goalMeals??{}).length,'목표 식사 횟수');return [join(x.actors.length,x.policy,x.mode),join(x.actors),join(x.actors.map(a=>x.thinkTicks[a])),join(x.actors.map(a=>x.eatTicks[a])),String(x.order.length),join(x.order)].join('\n');},
+  inputHelp:'첫 줄은 철학자 수 N, 정책(left·ordered·admission), 방식(fixedSchedule·findSchedule)입니다. 둘째 줄은 ID N개, 셋째 줄은 생각 시간 N개, 넷째 줄은 식사 시간 N개입니다. 식사 목표가 있으면(findSchedule은 필수) 다음 줄에 “goal 목표1 … 목표N”을 씁니다. 그다음 줄은 행동 수 M, 마지막 줄은 행동 순서 M개입니다.',
+  outputHelp:'fixedSchedule이면 철학자마다 입력 순서대로 “ID 상태”를 쓰고, 마지막 줄에 멈춘 이유를 씁니다. findSchedule이면 모두가 식사 목표에 닿는 순간까지의 행동 순서를 한 줄에 씁니다(목표에 닿는 순서면 모두 정답).',
+  toText(x){const goals=x.goalMeals??{},any=Object.keys(goals).length>0;
+   return [join(x.actors.length,x.policy,x.mode),join(x.actors),join(x.actors.map(a=>x.thinkTicks[a])),join(x.actors.map(a=>x.eatTicks[a])),
+    ...(any||x.mode==='findSchedule'?[join('goal',x.actors.map(a=>goals[a]??0))]:[]),String(x.order.length),...(x.order.length?[join(x.order)]:[])].join('\n');},
   parse(text){const r=reader(text),h=r.line(3,'N 정책 방식'),n=r.int(h[0],'철학자 수',2,16),actors=r.line(n,'ID').map(v=>r.id(v,'ID'));
    const ticks=label=>Object.fromEntries(r.line(n,label).map((v,i)=>[actors[i],r.int(v,label,0,100)])),thinkTicks=ticks('생각 시간'),eatTicks=ticks('식사 시간');
-   const m=r.count('행동 수');const order=m?r.line(m,'행동 순서').map(v=>r.id(v,'ID')):[];r.end();
-   return {actors,order,policy:r.word(h[1],['left','ordered','admission'],'정책'),mode:r.word(h[2],['fixedSchedule'],'방식'),thinkTicks,eatTicks,goalMeals:{}};},
-  expected(run,input){return [...input.actors.map(a=>join(a,run.result.states[a])),word(run.result.stopReason)];},
+   let goalMeals={};if(r.peek()?.[0]==='goal'){const g=r.line(n+1,'goal 목표');goalMeals=Object.fromEntries(actors.map((a,i)=>[a,r.int(g[i+1],'목표 식사',0,1000)]));}
+   const m=r.count('행동 수',10000);const order=m?r.line(m,'행동 순서').map(v=>r.id(v,'ID')):[];r.end();
+   return {actors,order,policy:r.word(h[1],['left','ordered','admission'],'정책'),mode:r.word(h[2],['fixedSchedule','findSchedule'],'방식'),thinkTicks,eatTicks,goalMeals};},
+  expected(run,input){return input.mode==='findSchedule'?[join(run.events.map(e=>e.actor))]:[...input.actors.map(a=>join(a,run.result.states[a])),word(run.result.stopReason)];},
+  // findSchedule (2026-11-09): any order is right if replaying it reaches every meal goal exactly at its last action.
+  compare(expected,actual,{input}){
+   if(input.mode!=='findSchedule')return JSON.stringify(expected)===JSON.stringify(actual);
+   if(actual.length!==1||!actual[0].every(a=>input.actors.includes(a)))return false;
+   try{return run('DP',{...input,order:actual[0]}).events.length===actual[0].length;}catch{return false;}
+  },
  },
  IN:{
   inputHelp:'첫 줄은 블록 크기입니다. 이어서 “개수” 줄 다음에 그 수만큼: 파일 이름 줄 “이름 inode”, inode 줄 “inode 크기 직접블록수 블록… 간접블록|-”, 간접 블록 줄 “블록 개수 블록…”, 데이터 블록 줄 “블록 값”을 차례로 씁니다. 마지막으로 접근 수 A와 A줄 “이름 오프셋”입니다.',
   outputHelp:'접근마다 “inode 논리블록 실제블록 블록안위치”를 씁니다. 파일 끝을 넘으면 “inode EOF”입니다.',
   toText(x){const f=x.fs,names=Object.keys(f.directory),inodes=Object.keys(f.inodes),ind=Object.keys(f.indirect),blocks=Object.keys(f.blocks);
    return [String(f.blockSize),String(names.length),...names.map(n=>join(n,f.directory[n])),String(inodes.length),...inodes.map(i=>join(i,f.inodes[i].size,f.inodes[i].direct.length,f.inodes[i].direct,f.inodes[i].indirect??'-')),
-    String(ind.length),...ind.map(b=>join(b,f.indirect[b].length,f.indirect[b])),String(blocks.length),...blocks.map(b=>join(b,f.blocks[b])),String(x.accesses.length),...x.accesses.map(a=>join(a.name,a.offset))].join('\n');},
+    String(ind.length),...ind.map(b=>join(b,f.indirect[b].length,f.indirect[b])),String(blocks.length),...blocks.map(b=>join(b,val(f.blocks[b]))),String(x.accesses.length),...x.accesses.map(a=>join(a.name,a.offset))].join('\n');},
   parse(text){const r=reader(text),blockSize=r.int(r.line(1,'블록 크기')[0],'블록 크기',1,65536),directory={},inodes={},indirect={},blocks={};
    for(let i=r.count('파일 이름 수');i>0;i--){const t=r.line(2,'이름 inode');directory[r.id(t[0],'이름')]=r.id(t[1],'inode');}
    for(let i=r.count('inode 수');i>0;i--){const t=r.lineAtLeast(4,'inode'),d=r.int(t[2],'직접 블록 수',0,64);if(t.length!==d+4)fail('inode 줄의 블록 수가 맞지 않습니다.');inodes[r.id(t[0],'inode')]={size:r.int(t[1],'크기',1,BIG),direct:t.slice(3,3+d).map(v=>r.id(v,'블록')),indirect:t[3+d]==='-'?null:r.id(t[3+d],'간접 블록')};}
@@ -216,38 +244,44 @@ const formats={
   expected(run){return [join(run.result.services),String(run.result.distance)];},
  },
  PT:{
-  inputHelp:'첫 줄은 프로세스 수 P, 다음 P줄은 “프로세스 변수수 이름 값 …”입니다. 다음 줄은 스레드 수 T, 다음 T줄은 “스레드 프로세스 레지스터수 이름 값 …”입니다. 다음 줄은 동작 수 K, 다음 K줄은 “read 스레드 shared|private 이름” 또는 “write 스레드 shared|private 이름 값”입니다.',
+  inputHelp:'첫 줄은 프로세스 수 P, 다음 P줄은 “프로세스 변수수 이름 값 …”입니다. 다음 줄은 스레드 수 T, 다음 T줄은 “스레드 프로세스 레지스터수 이름 값 … [스택수 값 …]”입니다. 다음 줄은 동작 수 K, 다음 K줄은 “read 스레드 shared|private 이름” 또는 “write 스레드 shared|private 이름 값”입니다.',
   outputHelp:'읽기마다 “스레드 이름 값”을 씁니다.',
-  toText(x){const ps=Object.keys(x.spaces),ts=Object.keys(x.threads),kv=o=>[Object.keys(o).length,...Object.entries(o).flat()];
-   for(const t of ts)need(!x.threads[t].stack.length,'스레드 스택은 비어 있어야 함');
-   return [String(ps.length),...ps.map(p=>join(p,kv(x.spaces[p]))),String(ts.length),...ts.map(t=>join(t,x.threads[t].process,kv(x.threads[t].registers))),String(x.operations.length),
-    ...x.operations.map(o=>o.op==='write'?join('write',o.thread,o.scope,o.key,o.value??null):join('read',o.thread,o.scope,o.key))].join('\n');},
+  toText(x){const ps=Object.keys(x.spaces),ts=Object.keys(x.threads),kv=o=>[Object.keys(o).length,...named(o)],stack=s=>s.length?[s.length,...s.map(val)]:[];
+   return [String(ps.length),...ps.map(p=>join(p,kv(x.spaces[p]))),String(ts.length),...ts.map(t=>join(t,x.threads[t].process,kv(x.threads[t].registers),stack(x.threads[t].stack))),String(x.operations.length),
+    ...x.operations.map(o=>o.op==='write'?join('write',o.thread,o.scope,o.key,val(o.value??null)):join('read',o.thread,o.scope,o.key))].join('\n');},
   parse(text){const r=reader(text),kv=(t,from,label)=>{const c=r.int(t[from],label,0,64);if(t.length!==from+1+2*c)fail(`${label}의 이름·값 수가 맞지 않습니다.`);return Object.fromEntries(Array.from({length:c},(_,i)=>[r.id(t[from+1+2*i],'이름'),r.value(t[from+2+2*i])]));};
    const spaces={};for(let i=r.count('프로세스 수',32);i>0;i--){const t=r.lineAtLeast(2,'프로세스');spaces[r.id(t[0],'프로세스')]=kv(t,1,'변수');}
-   const threads={};for(let i=r.count('스레드 수',32);i>0;i--){const t=r.lineAtLeast(3,'스레드');threads[r.id(t[0],'스레드')]={process:r.id(t[1],'프로세스'),registers:kv(t,2,'레지스터'),stack:[]};}
+   const threads={};for(let i=r.count('스레드 수',32);i>0;i--){const t=r.lineAtLeast(3,'스레드'),c=r.int(t[2],'레지스터',0,64),e=3+2*c;if(t.length<e)fail('레지스터의 이름·값 수가 맞지 않습니다.');
+    let stack=[];if(t.length>e){const s=r.int(t[e],'스택 수',0,256);if(t.length!==e+1+s)fail('스택 수와 값 수가 다릅니다.');stack=t.slice(e+1).map(v=>r.value(v));}
+    threads[r.id(t[0],'스레드')]={process:r.id(t[1],'프로세스'),registers:r.pairs(t.slice(3,e),'레지스터'),stack};}
    const operations=Array.from({length:r.count('동작 수')},()=>{const t=r.lineAtLeast(4,'동작'),op=r.word(t[0],['read','write'],'동작'),o={op,thread:r.id(t[1],'스레드'),scope:r.word(t[2],['shared','private'],'범위'),key:r.id(t[3],'이름')};
     if(op==='write'){if(t.length!==5)fail('write 줄은 “write 스레드 범위 이름 값”입니다.');o.value=r.value(t[4]);}else if(t.length!==4)fail('read 줄은 “read 스레드 범위 이름”입니다.');return o;});
    r.end();return {spaces,threads,operations};},
   expected(run){return run.events.filter(e=>e.kind==='read').map(e=>join(e.actor,e.data.key,e.data.value));},
  },
  IPC:{
-  inputHelp:'첫 줄은 방식(pipe·message·shared)과 채널 크기, 둘째 줄은 주체 수 A, 셋째 줄은 주체 ID A개, 넷째 줄은 동작 수 K, 다음 K줄은 “ID send 값”, “ID receive”, “ID write 이름 값”, “ID read 이름” 중 하나입니다.',
+  inputHelp:'첫 줄은 방식(pipe·message·shared)과 채널 크기, 둘째 줄은 주체 수 A, 셋째 줄은 주체 ID A개, 넷째 줄은 동작 수 K, 다음 K줄은 “ID send 값”, “ID receive”, “ID write 이름 값”, “ID read 이름” 중 하나입니다. 처음 채널에 값이 있으면 “initial K 값…”, 처음 공유 메모리에 값이 있으면 “shared K 이름 값 …”을 마지막에 씁니다.',
   outputHelp:'동작마다 “ID 결과 값”을 씁니다. 결과는 그 순간 일어난 일(send·receive·block·resume·read·write 등)이고, 값이 없으면 -입니다.',
-  toText(x){need(!x.initial?.length&&!Object.keys(x.shared??{}).length,'처음 채널·공유 메모리는 비어 있어야 함');
-   return [join(x.mode,x.capacity),String(x.actors.length),join(x.actors),String(x.operations.length),...x.operations.map(o=>o.op==='send'?join(o.actor,'send',o.value??null):o.op==='write'?join(o.actor,'write',o.key,o.value??null):o.op==='read'?join(o.actor,'read',o.key):join(o.actor,'receive'))].join('\n');},
+  toText(x){const first=x.initial??[],shared=x.shared??{};
+   return [join(x.mode,x.capacity),String(x.actors.length),join(x.actors),String(x.operations.length),...x.operations.map(o=>o.op==='send'?join(o.actor,'send',val(o.value??null)):o.op==='write'?join(o.actor,'write',o.key,val(o.value??null)):o.op==='read'?join(o.actor,'read',o.key):join(o.actor,'receive')),
+    ...(first.length?[join('initial',first.length,first.map(val))]:[]),...(Object.keys(shared).length?[join('shared',Object.keys(shared).length,named(shared))]:[])].join('\n');},
   parse(text){const r=reader(text),h=r.line(2,'방식 크기'),mode=r.word(h[0],['pipe','message','shared'],'방식'),capacity=r.int(h[1],'채널 크기',0,64),a=r.count('주체 수',32);
    const actors=r.line(a,'주체').map(v=>r.id(v,'ID')),operations=Array.from({length:r.count('동작 수')},()=>{const t=r.lineAtLeast(2,'동작'),actor=r.id(t[0],'ID'),op=r.word(t[1],['send','receive','write','read'],'동작');
     const n={send:3,receive:2,write:4,read:3}[op];if(t.length!==n)fail(`${op} 줄의 값 수가 맞지 않습니다.`);
     return op==='send'?{actor,op,value:r.value(t[2])}:op==='write'?{actor,op,key:r.id(t[2],'이름'),value:r.value(t[3])}:op==='read'?{actor,op,key:r.id(t[2],'이름')}:{actor,op};});
-   r.end();return {actors,mode,capacity,initial:[],shared:{},operations};},
+   let initial=[],shared={};
+   while(!r.atEnd()){const t=r.lineAtLeast(2,'추가 줄'),w=r.word(t[0],['initial','shared'],'추가 줄'),k=r.int(t[1],'값 수',0,256);
+    if(w==='initial'){if(t.length!==2+k)fail('처음 채널 값 수가 맞지 않습니다.');initial=t.slice(2).map(v=>r.value(v));}
+    else{if(t.length!==2+2*k)fail('공유 메모리의 이름·값 수가 맞지 않습니다.');shared=r.pairs(t.slice(2),'공유 메모리');}}
+   r.end();return {actors,mode,capacity,initial,shared,operations};},
   expected(run){return run.events.map(e=>join(e.actor,e.kind,e.data.value??null));},
  },
 };
 function kernel(id){const scenarios=id==='K-SYSCALL'?['syscall','error','blocking']:['io','timer'];return {
- inputHelp:`첫 줄은 상황(${scenarios.join('·')}), 실행 중 ID, 대기 중 ID, 시점, 반환값입니다. 둘째 줄은 주체 수 N, 다음 N줄은 “ID pc”입니다.`,
+ inputHelp:`첫 줄은 상황(${scenarios.join('·')}), 실행 중 ID, 대기 중 ID, 시점, 반환값입니다. 둘째 줄은 주체 수 N, 다음 N줄은 “ID pc [이름 값 …]”입니다.`,
  outputHelp:'첫 줄에 “모드 실행중ID”(없으면 -), 다음에 주체마다 입력 순서대로 “ID 상태 pc”, 마지막 줄에 반환값(없으면 -)을 씁니다.',
- toText(x){const ids=Object.keys(x.contexts);for(const i of ids)need(Object.keys(x.contexts[i]).join()==='pc','문맥은 pc 하나만');return [join(x.scenario,x.current,x.blocked,x.at,x.returnValue),String(ids.length),...ids.map(i=>join(i,x.contexts[i].pc))].join('\n');},
- parse(text){const r=reader(text),h=r.line(5,'상황 실행 대기 시점 반환값'),contexts={};for(let i=r.count('주체 수',16);i>0;i--){const t=r.line(2,'ID pc');contexts[r.id(t[0],'ID')]={pc:r.int(t[1],'pc',0,BIG)};}
+ toText(x){const ids=Object.keys(x.contexts);return [join(x.scenario,x.current,x.blocked,x.at,x.returnValue),String(ids.length),...ids.map(i=>withPc(i,x.contexts[i]))].join('\n');},
+ parse(text){const r=reader(text),h=r.line(5,'상황 실행 대기 시점 반환값'),contexts={};for(let i=r.count('주체 수',16);i>0;i--){const t=r.lineAtLeast(2,'ID pc');contexts[r.id(t[0],'ID')]=readPc(r,t);}
   r.end();return {scenario:r.word(h[0],scenarios,'상황'),current:r.id(h[1],'실행 중 ID'),blocked:r.id(h[2],'대기 중 ID'),contexts,at:r.int(h[3],'시점',0,BIG),returnValue:r.int(h[4],'반환값',-BIG,BIG)};},
  expected(run,input){return [join(run.result.mode,run.result.current??null),...Object.keys(input.contexts).map(i=>join(i,run.result.states[i],run.result.contexts[i].pc)),word(run.result.returnValue??null)];},
 };}

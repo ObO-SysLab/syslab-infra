@@ -5,6 +5,8 @@
 /grader/obo_assessment.py text eol=lf
 /grader/obo_checker.py text eol=lf
 /grader/obo_runtime/checker.mjs text eol=lf
+/grader/obo_runtime/rrText.mjs text eol=lf
+/grader/obo_runtime/textFormats.mjs text eol=crlf
 /grader/obo_runtime/contracts.mjs text eol=crlf
 /grader/obo_runtime/cpu.mjs text eol=lf
 /grader/obo_runtime/document.mjs text eol=lf

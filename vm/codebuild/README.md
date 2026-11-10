@@ -1,156 +1,32 @@
-# CodeBuild 파이프라인
+# 실습 이미지 빌드 (AUDIT-07)
 
-## 개요
+로컬 구현이며 운영 미적용이다. API·DB·프로젝트 buildspec·EventBridge 규칙을 함께 전환해야 한다. 전체 실행/복구안은 백엔드 `ops/2026-10-30-practice-build.md`에 있다. 서버 기동·운영 DB/AWS 변경·배포·push는 별도 승인 대상이다.
 
-출제자가 Dockerfile을 업로드하면 자동으로 Docker 이미지를 빌드하고
-ECR에 푸시한 뒤 SQS로 결과를 전달하는 파이프라인입니다.
-
----
-
-## 파이프라인 흐름
-
-```
-Backend → S3 업로드
-  s3://syslab-practice-dockerfile/prob-{prob_id}/source.zip
-        ↓
-EventBridge Rule 1 (syslab-practice-s3-trigger)
-  S3 ObjectCreated 이벤트 감지
-  → CodeBuild 자동 시작
-        ↓
-CodeBuild (syslab-practice-build)
-  buildspec.yml 실행
-  → PROB_ID 추출
-  → docker build
-  → docker push → ECR (syslab-practice:prob-{prob_id})
-        ↓
-EventBridge Rule 2 (syslab-practice-codebuild-trigger)
-  CodeBuild 완료 이벤트 감지
-  → SQS (syslab-practice-build-queue) 메시지 적재
-        ↓
-Backend Worker (5초마다 폴링)
-  SQS 메시지 수신
-  → SUCCEEDED: image_status = READY, ecr_image_uri 저장
-  → FAILED:    image_status = FAILED, build_log_url 저장
+```text
+API: 요청 UUID + 10분 마감 저장
+  → S3: prob-N/builds/요청UUID/source.zip
+  → 기존 EventBridge S3_KEY 환경변수 전달
+  → CodeBuild: 검증된 ZIP 빌드 → ECR build-CodeBuildUUID 태그
+  → EventBridge: 모든 Build State Change → 기존 SQS
+  → API: CodeBuild 실제 ID/소스/상태 + ECR digest 조회 → READY/FAILED
 ```
 
----
+알림이 누락되면 API가 30초 주기로 재조회한다. 현재 요청/빌드만 결과를 반영하고 READY에는 digest 주소를 저장한다. API/DB 장애 중 처리 시각까지 보장하지 않으며 10분 마감 뒤 성공 결과는 거절한다. CodeBuild의 실제 실행 중지와 플랫폼 결과 마감은 별개다.
 
-## PROB_ID 추출 방식
+`build_image.py`는 신뢰하는 오케스트레이션이다. 사용자 ZIP에서 이 파일이나 buildspec을 실행하지 않는다. `render_buildspec.py`가 Python을 inline으로 포함하는 `buildspec.yml`을 생성한다. **프로젝트 buildspec 설정에 파일 내용 자체를 반영**해야 하며 사용자 소스의 buildspec 경로로 설정하면 안 된다.
 
-### 문제 상황
-`CODEBUILD_SOURCE_VERSION` 환경변수는 S3 트리거 방식에서 **비어있음** (AWS 버그)
+필수 환경: `S3_KEY`(기존 트리거 전달), `CODEBUILD_BUILD_ID`(CodeBuild 제공), `ACCOUNT_ID`, `AWS_REGION`, `ECR_REPOSITORY`, `PRACTICE_SOURCE_BUCKET`(새 설정). Python3·AWS CLI·Docker와 Docker build가 가능한 기존 빌드 환경이 필요하다. ZIP 루트에 Dockerfile이 있어야 하며 경로 이탈/링크, 2048개 초과 또는 총 512 MiB 초과 압축 해제 파일을 거절한다.
 
-### 해결책
-`CODEBUILD_SOURCE_REPO_URL` 환경변수 사용
+이미지 태그는 문제 번호가 아니라 실제 빌드 UUID다. Docker build 또는 push 실패를 성공으로 통지하지 않는다. 기존 post_build의 직접 SQS 전송은 제거하며 `result-event-pattern.json`으로 프로젝트별 모든 상태 이벤트를 원문 전달한다. 큐 정책/DLQ/추가 조회 권한은 실행안에서 검토한다.
 
-```
-CODEBUILD_SOURCE_REPO_URL = syslab-practice-dockerfile/prob-1/source.zip
-                                                        ↑
-                                                    sed로 숫자 추출
-```
+2026-10-30 읽기 조회: 프로젝트의 실행 제한 60분·큐 대기 480분. 운영 설정을 바꾸지 않았다. 플랫폼 10분과 맞출 제한 분배는 별도 승인 대상이며 실행안의 5분+5분은 검토안이다. 자동 StopBuild와 고아 산출물 자동 삭제는 구현하지 않았다.
 
-```bash
-PROB_ID=$(echo $CODEBUILD_SOURCE_REPO_URL | sed 's|.*prob-\([0-9]*\)/.*|\1|')
-# → 1
+로컬 검증(실제 AWS/Docker 실행 없음):
+
+```powershell
+python -B vm/codebuild/render_buildspec.py
+python -B -m unittest discover -s vm/codebuild -p 'test_*.py' -v
+python -B -m unittest discover -s vm/lifecycle -v
 ```
 
-### 삽질 기록 (2026-05-01)
-
-| 시도 | 결과 | 이유 |
-|---|---|---|
-| `CODEBUILD_SOURCE_VERSION` 파싱 | ❌ 실패 | S3 트리거에서 값이 비어있음 |
-| `aws codebuild batch-get-builds` | ❌ 실패 | CodeBuild Role에 `BatchGetBuilds` 권한 없음 |
-| `aws s3api list-objects-v2` | ✅ 성공 | 최신 업로드 파일 조회 가능 |
-| `CODEBUILD_SOURCE_REPO_URL` 파싱 | ✅ 성공 | 가장 깔끔한 방식으로 최종 확정 |
-
----
-
-## buildspec.yml 설명
-
-```yaml
-version: 0.2
-env:
-  variables:
-    ECR_REPOSITORY: syslab-practice   # CodeBuild 환경변수로 주입
-
-phases:
-  pre_build:
-    commands:
-      # PROB_ID 추출 (CODEBUILD_SOURCE_REPO_URL 파싱)
-      - PROB_ID=$(echo $CODEBUILD_SOURCE_REPO_URL | sed 's|.*prob-\([0-9]*\)/.*|\1|')
-      - echo "PROB_ID=$PROB_ID"
-      # ECR 로그인
-      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
-  build:
-    commands:
-      # 이미지 빌드 및 태깅
-      - docker build -t $ECR_REPOSITORY:prob-$PROB_ID .
-      - docker tag $ECR_REPOSITORY:prob-$PROB_ID $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:prob-$PROB_ID
-  post_build:
-    commands:
-      # ECR 푸시
-      - docker push $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:prob-$PROB_ID
-      - echo "BUILD_COMPLETE prob_id=$PROB_ID"
-```
-
-### CodeBuild 프로젝트 환경변수 (AWS 콘솔에 설정)
-
-| 변수명 | 값 |
-|---|---|
-| `ECR_REPOSITORY` | `syslab-practice` |
-| `AWS_REGION` | `ap-northeast-2` |
-| `ACCOUNT_ID` | `290373175858` |
-
-> ⚠️ buildspec.yml은 CodeBuild 프로젝트에 직접 설정되어 있습니다.
-> S3에 올리는 zip 안에 buildspec.yml을 포함할 필요 없습니다.
-> zip 안에는 **Dockerfile만** 있으면 됩니다.
-
----
-
-## S3 경로 규칙
-
-```
-s3://syslab-practice-dockerfile/prob-{prob_id}/source.zip
-```
-
-이 규칙을 반드시 지켜야 합니다. 다른 경로를 사용하면 PROB_ID 파싱이 실패합니다.
-
----
-
-## SQS 메시지 처리 (백엔드)
-
-### 파싱할 필드 3개
-
-| 필드 경로 | 용도 |
-|---|---|
-| `detail.build-status` | `SUCCEEDED` / `FAILED` 판단 |
-| `detail.additional-information.source.location` | prob_id 추출 |
-| `detail.additional-information.logs.deep-link` | 실패 시 CloudWatch 로그 URL |
-
-### prob_id 추출 (Java)
-
-```java
-String location = body.at("/detail/additional-information/source/location").asText();
-// "syslab-practice-dockerfile/prob-1/source.zip"
-
-Pattern pattern = Pattern.compile("prob-(\\d+)/");
-Matcher matcher = pattern.matcher(location);
-if (matcher.find()) {
-    Long probId = Long.parseLong(matcher.group(1)); // → 1
-}
-```
-
-### image_uri 규칙
-
-```
-290373175858.dkr.ecr.ap-northeast-2.amazonaws.com/syslab-practice:prob-{prob_id}
-```
-
----
-
-## 파일 목록
-
-| 파일 | 설명 |
-|---|---|
-| `buildspec.yml` | CodeBuild 빌드 스크립트 확정본 |
-| `sqs-message-sample.json` | 2026-05-01 실제 캡처한 SQS 메시지 샘플 |
+빌드 모의 10개, 기존 VM helper 18개+digest 전달 1개를 검증한다. 실제 CodeBuild 빌드·SQS 전달·ECR pull은 별도 승인 후 검증해야 한다. `sqs_message_sample.json`은 과거 참고 자료이며 새 소비자는 source/detail-type/project-name/build-id가 있는 표준 이벤트를 요구한다. `Dockerfile.zip` 예제는 자동 수정하지 않았다.

@@ -9,33 +9,36 @@ from execution_protocol import MAX_SOURCE, MAX_INPUT, MAX_CASES, MAX_MEMORY_MB, 
 from obo_assessment import load_revision, revision_cases, semantic_verdict, public_record, public_diagram_record
 
 # ───────────────────────────────────────────
-# 제출 문맥은 Lambda에서, DB/실행 설정은 조정기 태스크에서 주입
+# 제출 문맥과 DB/실행 설정. ECS 태스크는 환경 변수로, Lambda 조정기는 메시지마다 configure()로 넣는다.
 # ───────────────────────────────────────────
-SUBMISSION_ID  = os.environ['SUBMISSION_ID']   # solve_submission.id (bigint, 문자열로 수신)
-CODE_S3_KEY    = os.environ['CODE_S3_KEY']     # e.g. submissions/123/Main.py
-LANGUAGE       = os.environ['LANGUAGE']         # python | c | cpp
-PROBLEM_ID     = os.environ['PROBLEM_ID']
-TIME_LIMIT     = int(os.environ['TIME_LIMIT'])  # 초 단위
-TESTCASE_COUNT = int(os.environ['TESTCASE_COUNT'])
-MEMORY_LIMIT = int(os.environ['MEMORY_LIMIT'])
-GRADING_ATTEMPT = int(os.environ['GRADING_ATTEMPT']) if os.environ.get('GRADING_ATTEMPT') else None
+def configure(values):
+    global SUBMISSION_ID, CODE_S3_KEY, LANGUAGE, PROBLEM_ID, TIME_LIMIT, TESTCASE_COUNT, MEMORY_LIMIT, GRADING_ATTEMPT
+    global CONTEST_ID, CONTEST_PROBLEM_ID, CONTEST_POINTS, IS_CONTEST
+    global DB_HOST, DB_NAME, DB_USER, DB_PASSWORD, DB_PORT, S3_BUCKET, REDIS_HOST, REDIS_PORT
+    SUBMISSION_ID  = values['SUBMISSION_ID']   # solve_submission.id (bigint, 문자열로 수신)
+    CODE_S3_KEY    = values['CODE_S3_KEY']     # e.g. submissions/123/Main.py
+    LANGUAGE       = values['LANGUAGE']         # python | c | cpp
+    PROBLEM_ID     = values['PROBLEM_ID']
+    TIME_LIMIT     = int(values['TIME_LIMIT'])  # 초 단위
+    TESTCASE_COUNT = int(values['TESTCASE_COUNT'])
+    MEMORY_LIMIT   = int(values['MEMORY_LIMIT'])
+    GRADING_ATTEMPT = int(values['GRADING_ATTEMPT']) if values.get('GRADING_ATTEMPT') else None
 
-# 대회 컨텍스트 (대회 제출일 때만 세팅, 일반 제출이면 None)
-CONTEST_ID         = os.environ.get('CONTEST_ID')
-CONTEST_PROBLEM_ID = os.environ.get('CONTEST_PROBLEM_ID')
-CONTEST_POINTS     = int(os.environ['CONTEST_POINTS']) if os.environ.get('CONTEST_POINTS') else None
+    # 대회 컨텍스트 (대회 제출일 때만 세팅, 일반 제출이면 None)
+    CONTEST_ID         = values.get('CONTEST_ID')
+    CONTEST_PROBLEM_ID = values.get('CONTEST_PROBLEM_ID')
+    CONTEST_POINTS     = int(values['CONTEST_POINTS']) if values.get('CONTEST_POINTS') else None
+    IS_CONTEST = CONTEST_ID is not None
 
-IS_CONTEST = CONTEST_ID is not None
+    DB_HOST     = values['DB_HOST']
+    DB_NAME     = values.get('DB_NAME', 'syslab')
+    DB_USER     = values.get('DB_USER', 'postgres')
+    DB_PASSWORD = values['DB_PASSWORD']
+    DB_PORT     = int(values.get('DB_PORT', '5432'))
 
-DB_HOST     = os.environ['DB_HOST']
-DB_NAME     = os.environ.get('DB_NAME', 'syslab')
-DB_USER     = os.environ.get('DB_USER', 'postgres')
-DB_PASSWORD = os.environ['DB_PASSWORD']
-DB_PORT     = int(os.environ.get('DB_PORT', '5432'))
-
-S3_BUCKET  = os.environ.get('S3_BUCKET', 'syslab-code')
-REDIS_HOST = os.environ.get('REDIS_HOST', 'localhost')
-REDIS_PORT = int(os.environ.get('REDIS_PORT', '6379'))
+    S3_BUCKET  = values.get('S3_BUCKET', 'syslab-code')
+    REDIS_HOST = values.get('REDIS_HOST', 'localhost')
+    REDIS_PORT = int(values.get('REDIS_PORT', '6379'))
 
 # ───────────────────────────────────────────
 # 상수
@@ -421,4 +424,5 @@ def main():
 
 
 if __name__ == '__main__':
+    configure(os.environ)  # ECS 태스크: 컨테이너 환경 변수 한 묶음 = 제출 하나
     sys.exit(main())

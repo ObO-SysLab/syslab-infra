@@ -104,6 +104,40 @@ RUNNER_SECURITY_GROUP.
   Task-definition validation does not prove SG, ACL, IAM, bucket policy or sandbox isolation;
   verify these independently on Fargate before opening submissions.
 
+### Lambda coordinator (2026-11-12, not yet deployed)
+
+Measured production latency is 92–99 s per coding submission. Two sequential Fargate cold
+starts dominate: the coordinator task takes 17–25 s and the runner task 24–30 s. The Lambda
+coordinator removes the first cold start. The runner stays a fresh, credential-free Fargate
+task per submission.
+
+- Image: `Dockerfile.lambda`. It uses the same base and trusted files as `Dockerfile` and adds
+  `awslambdaric`. The handler is `lambda_coordinator.handler`, attached to the existing grading
+  SQS queue with batch size 1.
+- Each record is checked with the admission rules of `launch.mjs`, then passed to
+  `grader.configure()` and `grader.main()`. In the ECS task, `configure(os.environ)` does the
+  same thing once per task.
+- `DB_SECRET_ARN` holds the grading DB secret (JSON with DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD).
+  It is read once per warm container. S3_BUCKET, the runner settings and the Redis settings are
+  the same environment variables the coordinator task uses.
+- Run it in the coordinator's VPC subnet and security group, so it reaches RDS, Redis, ECS and
+  S3 through the existing NAT and S3 Gateway path. Timeout is 900 s: the runner budget is
+  780 s, including the startup allowance. The SQS visibility timeout must be longer than the
+  function timeout. Cap reserved concurrency so parallel runners and DB connections stay bounded.
+- The execution role needs the coordinator task role's permissions,
+  `secretsmanager:GetSecretValue` on that one secret, and VPC ENI access.
+- Failure semantics are unchanged:
+  - A grading infrastructure failure is recorded in `coding_grade_job`, and the backend
+    re-dispatches it as the next attempt.
+  - Only messages that could not start (bad body, unreachable DB or secret) return to SQS.
+  - Attempt fencing in `begin_grading` keeps a redelivery from grading twice.
+- Rollback: point the SQS event source mapping back at `syslab-grader-trigger`. That restores
+  the Fargate coordinator, whose task definition is untouched.
+
+`runner_client` also reads the result once the runner container has exited, using its exit
+code. It no longer waits for the task to reach `STOPPED`; Fargate deprovisioning added
+15–26 s after the program ended.
+
 ## Rollout and recovery — separate approval required
 
 1. Inventory actual queue/task revisions/digests, IAM, secret references, networking,

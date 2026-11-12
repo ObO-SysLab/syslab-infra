@@ -108,9 +108,13 @@ class RunnerClient:
                 task = response['tasks'][0]
                 if task.get('taskArn') != task_arn or task.get('taskDefinitionArn') != self.definition:
                     raise ExecutionFailure('Unexpected runner task identity')
-                if task.get('lastStatus') == 'STOPPED':
-                    stopped = True
-                    containers = task.get('containers', [])
+                containers = task.get('containers', [])
+                # The worker uploads its result before exiting 0, so the container's exit is enough.
+                # Waiting for the task itself to reach STOPPED adds ~15-25 s of Fargate deprovisioning.
+                exited = (len(containers) == 1 and containers[0].get('lastStatus') == 'STOPPED'
+                          and containers[0].get('exitCode') is not None)
+                if task.get('lastStatus') == 'STOPPED' or exited:
+                    stopped = True  # Nothing left to stop; ECS finishes deprovisioning on its own.
                     if len(containers) != 1 or containers[0].get('name') != 'runner' or containers[0].get('exitCode') != 0:
                         raise ExecutionFailure('Runner failed without a trustworthy result')
                     result = parse(read_object(self.s3, self.bucket, output_key, MAX_RESULT), MAX_RESULT)

@@ -107,6 +107,33 @@ class RunnerClientTest(unittest.TestCase):
         with self.assertRaisesRegex(ExecutionFailure, 'deadline'): self.execute()
         self.ecs.stop_task.assert_called_once_with(cluster='test', task='task-1', reason='Execution coordinator finished')
 
+    def test_result_is_read_once_the_runner_container_exits(self):
+        # Fargate keeps the task in DEACTIVATING/STOPPING for ~15-25 s after the program ends.
+        running = dict(taskArn='task-1', taskDefinitionArn=ARN, lastStatus='RUNNING',
+                       containers=[dict(name='runner', lastStatus='RUNNING')])
+        exited = dict(taskArn='task-1', taskDefinitionArn=ARN, lastStatus='DEACTIVATING',
+                      containers=[dict(name='runner', lastStatus='STOPPED', exitCode=0)])
+        self.ecs.describe_tasks.return_value = None
+        self.ecs.describe_tasks.side_effect = [{'tasks': [running]}, {'tasks': [exited]}]
+        self.assertEqual(self.execute()['cases'][0]['verdict'], 'OK')
+        self.assertEqual(self.ecs.describe_tasks.call_count, 2)
+        self.ecs.stop_task.assert_not_called()
+
+    def test_early_exit_with_failure_is_still_untrusted(self):
+        exited = dict(taskArn='task-1', taskDefinitionArn=ARN, lastStatus='STOPPING',
+                      containers=[dict(name='runner', lastStatus='STOPPED', exitCode=1)])
+        self.ecs.describe_tasks.return_value = {'tasks': [exited]}
+        with self.assertRaises(ExecutionFailure): self.execute()
+        self.s3.get_object.assert_not_called()
+        self.ecs.stop_task.assert_not_called()
+
+    def test_container_stopping_without_exit_code_keeps_waiting(self):
+        pending = dict(taskArn='task-1', taskDefinitionArn=ARN, lastStatus='DEACTIVATING',
+                       containers=[dict(name='runner', lastStatus='STOPPED')])
+        self.ecs.describe_tasks.return_value = {'tasks': [pending]}
+        with self.assertRaisesRegex(ExecutionFailure, 'deadline'): self.execute()
+        self.s3.get_object.assert_not_called()
+
     def test_failed_runner_is_infrastructure_failure_not_compile_verdict(self):
         self.ecs.describe_tasks.return_value['tasks'][0]['containers'][0]['exitCode'] = 124
         with self.assertRaises(ExecutionFailure): self.execute()

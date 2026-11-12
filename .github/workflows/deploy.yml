@@ -36,6 +36,12 @@ jobs:
           docker build -f grader/runner/Dockerfile -t diveon-runner:${{ github.sha }} grader
           docker build -f grader/runner/Dockerfile.obo-test --build-arg RUNNER_IMAGE=diveon-runner:${{ github.sha }} -t diveon-runner-test:${{ github.sha }} grader
           docker run --rm --network none --read-only --memory 2g --memory-swap 2g --cpus 1 --pids-limit 64 --cap-drop NET_RAW --cap-drop NET_BIND_SERVICE --cap-drop MKNOD --cap-drop SETFCAP --cap-drop SETPCAP --cap-drop SYS_PTRACE --tmpfs /work:rw,exec,nosuid,nodev,size=2g --init diveon-runner-test:${{ github.sha }}
+      - name: Build the Lambda coordinator image and start it like Lambda does (no AWS)
+        run: |
+          docker build -f grader/Dockerfile.lambda -t diveon-coordinator-lambda:${{ github.sha }} grader
+          # Lambda runs images as a non-root user on a read-only filesystem with only /tmp writable.
+          docker run --rm --network none --read-only --tmpfs /tmp --user 993:990 --entrypoint python3 \
+            diveon-coordinator-lambda:${{ github.sha }} -c "import awslambdaric, lambda_coordinator, grader, obo_checker, subprocess; obo_checker.verify_release(); print(subprocess.run(['node', '--version'], capture_output=True, text=True, check=True).stdout.strip()); print('lambda coordinator image OK')"
       - name: Complete source and Lambda bundle (no ECR push)
         run: |
           python -B ops/package_release.py --output release --revision "$GITHUB_SHA"

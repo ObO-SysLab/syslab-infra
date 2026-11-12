@@ -1,0 +1,19 @@
+# Lambda coordinator image: the same trusted files and base as ./Dockerfile (ECS coordinator),
+# started by the Lambda runtime interface client instead of `python3 grader.py`.
+# Still no compiler or submitted-code execution path; the isolated runner task does that.
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends nodejs && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt requirements-lambda.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-lambda.txt
+
+WORKDIR /app
+COPY grader.py lambda_coordinator.py ./
+COPY runner_client.py execution_protocol.py ./
+COPY obo_checker.py obo_assessment.py ./
+COPY obo_runtime ./obo_runtime
+
+ENV PYTHONUNBUFFERED=1
+ENTRYPOINT ["python3", "-m", "awslambdaric"]
+CMD ["lambda_coordinator.handler"]

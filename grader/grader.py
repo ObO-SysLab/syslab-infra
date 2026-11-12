@@ -416,7 +416,9 @@ def main():
             report_attempt_failure(conn)
         except Exception:
             conn.rollback()  # Unreachable DB / process death is recovered by the durable deadline.
-        print('[ERROR] Grading infrastructure failure', file=sys.stderr)
+        # Exception class names only (never messages: they can carry signed URLs, source or credentials).
+        cause = f' <- {type(e.__cause__).__name__}' if e.__cause__ is not None else ''
+        print(f'[ERROR] Grading infrastructure failure: {type(e).__name__}{cause}', file=sys.stderr)
         return 1
 
     finally:

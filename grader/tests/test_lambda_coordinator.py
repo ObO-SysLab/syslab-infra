@@ -96,5 +96,20 @@ class LambdaCoordinatorTest(unittest.TestCase):
             del os.environ['DB_SECRET_ARN']
 
 
+    def test_warm_up_runs_the_checker_once_and_never_raises(self):
+        calls = []
+        ticks = iter([0.0, 6.5])
+        state = coordinator.warm_up(invoke=lambda request, timeout: calls.append((request, timeout)), clock=lambda: next(ticks))
+        self.assertEqual(state, 'ready')
+        self.assertEqual(calls, [({'operation': 'warmup'}, 30)])
+
+        class OboCheckerError(Exception):
+            pass
+        def rejected(request, timeout):
+            raise OboCheckerError('Checker rejected configuration')
+        state = coordinator.warm_up(invoke=rejected, clock=lambda: 0.0)
+        self.assertEqual(state, 'OboCheckerError: Checker rejected configuration')
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -2,7 +2,7 @@ name: Infrastructure verification and release artifact
 on:
   pull_request:
   push:
-    branches: [main, 'fix/**']
+    branches: [main, 'fix/**', 'feat/**']
   workflow_dispatch:
 permissions:
   contents: read
@@ -36,6 +36,8 @@ jobs:
           docker build -f grader/runner/Dockerfile -t diveon-runner:${{ github.sha }} grader
           docker build -f grader/runner/Dockerfile.obo-test --build-arg RUNNER_IMAGE=diveon-runner:${{ github.sha }} -t diveon-runner-test:${{ github.sha }} grader
           docker run --rm --network none --read-only --memory 2g --memory-swap 2g --cpus 1 --pids-limit 64 --cap-drop NET_RAW --cap-drop NET_BIND_SERVICE --cap-drop MKNOD --cap-drop SETFCAP --cap-drop SETPCAP --cap-drop SYS_PTRACE --tmpfs /work:rw,exec,nosuid,nodev,size=2g --init diveon-runner-test:${{ github.sha }}
+      - name: Probe the practice command restriction layer on real Linux images
+        run: DIVEON_RESTRICTION_LINUX=1 python -B -m unittest discover -s vm/codebuild -p 'test_restriction_linux.py' -v
       - name: Build the Lambda coordinator image and start it like Lambda does (no AWS)
         run: |
           docker build -f grader/Dockerfile.lambda -t diveon-coordinator-lambda:${{ github.sha }} grader

@@ -301,15 +301,22 @@ class ContestResultTest(unittest.TestCase):
     def test_result_time_is_seoul_wall_clock_like_the_backend(self):
         # solve_result.created_at is a timestamp without time zone that the backend writes in
         # Asia/Seoul (JVM -Duser.timezone). RDS sessions run in UTC, so plain NOW() was 9 hours early.
+        # It is also the moment the result is stored: main() keeps the transaction it opens right after
+        # begin_grading open while the runner works, so NOW() (transaction start) is the grading start.
+        import time
         from datetime import datetime, timedelta, timezone
         self.prepare_full_submission()
         with self.conn, self.conn.cursor() as cur:
             cur.execute("SET TIME ZONE 'UTC'")
+            cur.execute("SELECT NOW() AT TIME ZONE 'Asia/Seoul'")
+            transaction_start = cur.fetchone()[0]
+            time.sleep(1.5)
             self.scope['insert_result'](self.conn, 'CORRECT', 2048, 10, 20)
             cur.execute('SELECT created_at FROM solve_result WHERE submission_id = 101')
             stored = cur.fetchone()[0]
         seoul_now = datetime.now(timezone(timedelta(hours=9))).replace(tzinfo=None)
         self.assertLess(abs((stored - seoul_now).total_seconds()), 120)
+        self.assertGreaterEqual((stored - transaction_start).total_seconds(), 1.4)
 
     def prepare_tracked_submission(self, contest=False):
         self.prepare_full_submission(contest)

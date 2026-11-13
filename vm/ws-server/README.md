@@ -12,6 +12,12 @@ exchanges it for a server-only lease and rechecks the session every five seconds
 Missing/invalid grants, different targets, stopped/expired sessions, and verification
 outages fail closed. The browser waits for a ready frame before attaching xterm.
 
+After `ready`, the browser keeps the PTY the same size as its terminal.
+- It sends a binary frame `\0DVRS` + uint16 cols + uint16 rows (big-endian, cols 20–500, rows 5–200).
+- The server resizes the PTY and never types this frame into the shell. Out-of-range frames are ignored.
+- xterm's own binary input starts with ESC, so it cannot collide with this frame.
+- Deploy this server before the frontend that sends the frame: an older server would type it into the shell.
+
 Run isolated tests (no listeners, Docker, AWS, Redis or DB servers started):
 
 ```text

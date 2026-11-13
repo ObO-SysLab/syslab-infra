@@ -71,17 +71,22 @@ class LifecycleTest(unittest.TestCase):
         self.assertEqual(cid, self.create())
         creates = [c for c in self.docker.calls if c[1] == 'create']
         self.assertEqual(1, len(creates))
-        for option, value in [('--network', 'none'), ('--memory', '256m'), ('--cpus', '0.3')]:
+        for option, value in [('--network', 'none'), ('--memory', '256m'), ('--cpus', '0.3'),
+                              ('--memory-swap', '256m'), ('--pids-limit', '256')]:
             self.assertEqual(value, creates[0][creates[0].index(option) + 1])
+            self.assertEqual(1, creates[0].count(option))
         self.assertTrue(self.root.joinpath('10.json').exists())
 
     def create_args(self):
         return [c for c in self.docker.calls if c[:2] == ['container', 'create']]
 
-    def test_unrestricted_image_gets_no_extra_mounts(self):
+    def test_unrestricted_image_gets_process_and_swap_limits_but_keeps_setuid(self):
         self.create()
-        self.assertNotIn('--tmpfs', self.create_args()[0])
-        self.assertNotIn('no-new-privileges', self.create_args()[0])
+        args = self.create_args()[0]
+        self.assertNotIn('--tmpfs', args)
+        self.assertNotIn('no-new-privileges', args)  # sudo/setuid escalation problems keep working
+        self.assertEqual(args[args.index('--pids-limit') + 1], '256')
+        self.assertEqual(args[args.index('--memory-swap') + 1], '256m')
 
     def test_restricted_image_writes_only_to_noexec_mounts(self):
         self.docker.images['registry/practice:latest'] = {'net.diveon.restriction': 'v1', 'other': 'x'}
@@ -92,6 +97,7 @@ class LifecycleTest(unittest.TestCase):
         self.assertTrue(all('noexec' in m and 'nosuid' in m for m in mounts))
         self.assertIn('uid=10001', mounts[2])
         self.assertEqual(args[args.index('--security-opt') + 1], 'no-new-privileges')
+        self.assertEqual(args.count('--pids-limit'), 1)
         self.assertEqual(args[args.index('--pids-limit') + 1], '256')
         self.assertLess(args.index('--tmpfs'), args.index('registry/practice:latest'))
 

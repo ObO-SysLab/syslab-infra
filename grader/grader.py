@@ -120,7 +120,7 @@ def insert_result(conn, result_status, memory_usage, runtime, code_size):
         cur.execute(
             """
             INSERT INTO solve_result (submission_id, result_status, created_at)
-            VALUES (%s, %s, NOW())
+            VALUES (%s, %s, NOW() AT TIME ZONE 'Asia/Seoul')
             RETURNING id
             """,
             (SUBMISSION_ID, result_status)

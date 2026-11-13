@@ -14,9 +14,20 @@ class FakeDocker:
         self.containers = {}
         self.calls = []
         self.fail = None
+        self.images = {'registry/practice:latest': None}  # image -> labels (None like `docker inspect`)
+        self.registry = {}
 
     def __call__(self, args):
         self.calls.append(args)
+        if args[0] == 'image':
+            image = args[-1]
+            if args[1] == 'inspect':
+                if image not in self.images: raise Failure('No such image')
+                return json.dumps(self.images[image])
+            if args[1] == 'pull':
+                if image not in self.registry: raise Failure('pull failed')
+                self.images[image] = self.registry[image]
+                return 'sha256:' + '0' * 64
         operation = args[1]
         if operation == self.fail: raise Failure('daemon unavailable')
         if operation == 'ls':
@@ -64,6 +75,44 @@ class LifecycleTest(unittest.TestCase):
             self.assertEqual(value, creates[0][creates[0].index(option) + 1])
         self.assertTrue(self.root.joinpath('10.json').exists())
 
+    def create_args(self):
+        return [c for c in self.docker.calls if c[:2] == ['container', 'create']]
+
+    def test_unrestricted_image_gets_no_extra_mounts(self):
+        self.create()
+        self.assertNotIn('--tmpfs', self.create_args()[0])
+        self.assertNotIn('no-new-privileges', self.create_args()[0])
+
+    def test_restricted_image_writes_only_to_noexec_mounts(self):
+        self.docker.images['registry/practice:latest'] = {'net.diveon.restriction': 'v1', 'other': 'x'}
+        self.create()
+        args = self.create_args()[0]
+        mounts = [args[i + 1] for i, a in enumerate(args) if a == '--tmpfs']
+        self.assertEqual([m.split(':')[0] for m in mounts], ['/tmp', '/var/tmp', '/home/lab/work'])
+        self.assertTrue(all('noexec' in m and 'nosuid' in m for m in mounts))
+        self.assertIn('uid=10001', mounts[2])
+        self.assertEqual(args[args.index('--security-opt') + 1], 'no-new-privileges')
+        self.assertEqual(args[args.index('--pids-limit') + 1], '256')
+        self.assertLess(args.index('--tmpfs'), args.index('registry/practice:latest'))
+
+    def test_unknown_restriction_version_never_creates(self):
+        self.docker.images['registry/practice:latest'] = {'net.diveon.restriction': 'v9'}
+        with self.assertRaises(Failure): self.create()
+        self.assertEqual(self.create_args(), [])
+
+    def test_image_not_yet_pulled_is_pulled_before_reading_labels(self):
+        del self.docker.images['registry/practice:latest']
+        self.docker.registry['registry/practice:latest'] = {'net.diveon.restriction': 'v1'}
+        self.create()
+        image_calls = [c[:2] for c in self.docker.calls if c[0] == 'image']
+        self.assertEqual(image_calls, [['image', 'inspect'], ['image', 'pull'], ['image', 'inspect']])
+        self.assertIn('--tmpfs', self.create_args()[0])
+
+    def test_pull_failure_never_creates_an_unhardened_container(self):
+        del self.docker.images['registry/practice:latest']
+        with self.assertRaises(Failure): self.create()
+        self.assertEqual(self.create_args(), [])
+
     def test_remove_checks_exact_identity_and_is_idempotent(self):
         self.create()
         self.assertEqual('MISSING', self.request('remove')['status'])
@@ -72,6 +121,7 @@ class LifecycleTest(unittest.TestCase):
 
     def test_create_preserves_practice_image_digest(self):
         image = 'registry/practice@sha256:' + 'a' * 64
+        self.docker.images[image] = None
         self.assertEqual('RUNNING', self.request('create', image=image)['status'])
         creates = [c for c in self.docker.calls if c[1] == 'create']
         self.assertEqual([image, 'sleep', 'infinity'], creates[0][-3:])

@@ -2,6 +2,19 @@
 
 const CONTAINER_ID = /^[a-f0-9]{64}$/;
 
+// Browser resize control: a binary frame "\0DVRS" + uint16 cols + uint16 rows (big-endian).
+// xterm's own binary input starts with ESC, so it never collides with this prefix.
+const RESIZE_PREFIX = Buffer.from('\0DVRS', 'latin1');
+const IGNORED = Symbol('ignored control frame');
+function resizeOf(data, isBinary) {
+  if (!isBinary || !Buffer.isBuffer(data) || data.length < RESIZE_PREFIX.length
+      || !data.subarray(0, RESIZE_PREFIX.length).equals(RESIZE_PREFIX)) return null;
+  if (data.length !== RESIZE_PREFIX.length + 4) return IGNORED;
+  const cols = data.readUInt16BE(RESIZE_PREFIX.length);
+  const rows = data.readUInt16BE(RESIZE_PREFIX.length + 2);
+  return cols >= 20 && cols <= 500 && rows >= 5 && rows <= 200 ? { cols, rows } : IGNORED;
+}
+
 // No listeners or processes are started at import time. Dependencies are injectable
 // so authorization failures and PTY lifecycle can be tested without Docker.
 function attachTerminal(ws, grant, { pty, check, now = Date.now,
@@ -38,10 +51,12 @@ function attachTerminal(ws, grant, { pty, check, now = Date.now,
       if (ws.readyState === 1) ws.send(data, error => { if (error) stop(); });
     });
     shell.onExit(stop);
-    ws.on('message', data => {
+    ws.on('message', (data, isBinary) => {
       if (closed) return;
       if (now() >= grant.expiresAt) return stop();
-      try { shell.write(data.toString()); } catch { stop(); }
+      const size = resizeOf(data, isBinary);
+      if (size === IGNORED) return;
+      try { if (size) shell.resize(size.cols, size.rows); else shell.write(data.toString()); } catch { stop(); }
     });
   } catch {
     stop();

@@ -14,6 +14,15 @@ import uuid
 ROOT = Path('/var/lib/diveon-vm')
 HELPER_LABEL = 'diveon.vm.manager'
 IDENTITY = {'sessionId', 'userId', 'problemId', 'expiresAtEpochMs'}
+# Set by the practice build (vm/codebuild) on images restricted to allowed commands. Their lab account
+# may write only to these mounts, all noexec, so it cannot run programs it writes itself.
+RESTRICTION_LABEL = 'net.diveon.restriction'
+RESTRICTED_OPTIONS = [
+    '--tmpfs', '/tmp:rw,noexec,nosuid,nodev,size=64m',
+    '--tmpfs', '/var/tmp:rw,noexec,nosuid,nodev,size=16m',
+    '--tmpfs', '/home/lab/work:rw,noexec,nosuid,nodev,size=64m,uid=10001,gid=10001,mode=0700',
+    '--security-opt', 'no-new-privileges', '--pids-limit', '256',
+]
 
 
 class Failure(RuntimeError):
@@ -95,6 +104,21 @@ class Manager:
     def labels(self, request):
         return {HELPER_LABEL: 'v1', **{f'diveon.vm.{k}': str(request[k]) for k in IDENTITY}}
 
+    def hardening(self, image):
+        """Extra options for images the practice build restricted to an allowed-command list."""
+        template = '{{json .Config.Labels}}'
+        try:
+            raw = self.docker(['image', 'inspect', '--format', template, image])
+        except Failure:
+            # Not pulled yet: container create would pull it anyway; pull first to read its labels.
+            self.docker(['image', 'pull', '--quiet', image])
+            raw = self.docker(['image', 'inspect', '--format', template, image])
+        labels = json.loads(raw)
+        value = labels.get(RESTRICTION_LABEL) if isinstance(labels, dict) else None
+        if value is None: return []
+        if value != 'v1': raise Failure('Unknown image restriction')
+        return list(RESTRICTED_OPTIONS)
+
     def lookup(self, request):
         legacy = request.get('legacyContainerId')
         target = legacy or self.name(request)
@@ -130,7 +154,7 @@ class Manager:
                 current = self.lookup(request)
                 if current is None:
                     args = ['container', 'create', '--name', self.name(request), '--memory', '256m',
-                            '--cpus', '0.3', '--network', 'none', '--init']
+                            '--cpus', '0.3', '--network', 'none', '--init', *self.hardening(request['image'])]
                     for key, value in self.labels(request).items(): args += ['--label', key + '=' + value]
                     args += [request['image'], 'sleep', 'infinity']
                     self.docker(args)

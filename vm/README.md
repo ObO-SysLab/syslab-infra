@@ -47,10 +47,10 @@
 | VM EC2 | `syslab-vm` 10.0.3.30(서브넷 10.0.3.0/24, NAT `syslab-nat` 경유). Docker, ws-server, 도우미 |
 | ws-server | `/opt/diveon/vm-20261113/ws-server`(systemd `ws-terminal.service`, Node 22), 터널 `diveon-terminal-tunnel.service` |
 | 도우미 | `/usr/local/libexec/diveon-vm-helper.py`, 상태 `/var/lib/diveon-vm`(ec2-user, 0700) |
-| 이전 버전 | `/opt/diveon/vm-20261105`, `/var/lib/diveon/releases/vm-before-20261113`(도우미·서비스 백업) |
+| 이전 버전 | `/opt/diveon/vm-20261105`, `/var/lib/diveon/releases/vm-before-20261113`(오전: 도우미·서비스 백업), `vm-before-20261113b`(오후: 프로세스·스왑 제한 전 도우미) |
 | 이미지 | ECR `syslab-practice`(옛 `prob-N` 태그와 새 `build-<UUID>` 태그) |
 
-배포와 되돌리기 기록은 작업 공간의 `obo-harness/evidence/2026-11-13-practice-rollout/`에 있다.
+배포와 되돌리기 기록은 작업 공간의 `obo-harness/evidence/2026-11-13-practice-rollout/`과 `2026-11-13-followups/`에 있다.
 
 ## 디렉터리
 

@@ -15,7 +15,7 @@ from pathlib import Path
 import build_image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lifecycle"))
-from diveon_vm_helper import RESTRICTED_OPTIONS  # noqa: E402  (the VM helper's real create options)
+from diveon_vm_helper import BASE_OPTIONS, RESTRICTED_OPTIONS  # noqa: E402  (the VM helper's real create options)
 
 ENABLED = os.environ.get("DIVEON_RESTRICTION_LINUX") == "1" and shutil.which("docker") is not None
 DEBIAN_LIKE = """FROM {base}
@@ -177,6 +177,14 @@ class RestrictionLinuxTest(unittest.TestCase):
                             self.assertIn(expected, result.stdout + result.stderr)
                 finally:
                     docker("rm", "-f", container, check=False)
+
+    def test_every_practice_container_has_process_and_swap_limits(self):
+        # Unrestricted images (root, setuid allowed) and restricted ones both get the helper's base limits.
+        for image in ["ubuntu:22.04", *self.images.values()]:
+            with self.subTest(image=image):
+                result = docker("run", "--rm", *BASE_OPTIONS, image, "cat", "/sys/fs/cgroup/pids.max",
+                                "/sys/fs/cgroup/memory.swap.max", check=False)
+                self.assertEqual(result.stdout.split(), ["256", "0"], result.stderr)
 
     def test_loader_cannot_map_programs_from_noexec_mounts(self):
         for image in self.each():

@@ -16,12 +16,16 @@ Reconciliation rotates manifests, including closed sessions, to clean up Docker 
 that completed after a lost response. Progress is persisted before each attempt to avoid
 starvation when an SSH command ends early. Unrecorded/mismatched containers require manual review.
 
+Every practice container is created with `--memory 256m --memory-swap 256m` (no swap), `--pids-limit 256`,
+`--cpus 0.3`, `--network none` and `--init`. no-new-privileges is not applied to unrestricted images, so
+sudo/setuid escalation problems keep working.
+
 Images restricted to an allowed-command list (practice build label `net.diveon.restriction=v1`) get extra
 create options. The helper reads the label before creating, and pulls the image first if it is not local.
 - `/tmp`, `/var/tmp` and `/home/lab/work` become `noexec,nosuid,nodev` tmpfs mounts.
-- `no-new-privileges` and `--pids-limit 256` are added.
+- `no-new-privileges` is added.
 - An unknown label value fails the create, so an unhardened container is never created.
-- Unlabeled images are created exactly as before.
+- Unlabeled images get only the base options above.
 
 Pure unit tests (no Docker, DB, SSH, network or application server):
 

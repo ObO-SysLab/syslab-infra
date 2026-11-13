@@ -21,8 +21,12 @@ RESTRICTED_OPTIONS = [
     '--tmpfs', '/tmp:rw,noexec,nosuid,nodev,size=64m',
     '--tmpfs', '/var/tmp:rw,noexec,nosuid,nodev,size=16m',
     '--tmpfs', '/home/lab/work:rw,noexec,nosuid,nodev,size=64m,uid=10001,gid=10001,mode=0700',
-    '--security-opt', 'no-new-privileges', '--pids-limit', '256',
+    '--security-opt', 'no-new-privileges',
 ]
+# Every practice container: 256 MB without swap and at most 256 processes (no fork bomb against the
+# shared VM). no-new-privileges stays restricted-only so sudo/setuid escalation problems keep working.
+BASE_OPTIONS = ['--memory', '256m', '--memory-swap', '256m', '--pids-limit', '256',
+                '--cpus', '0.3', '--network', 'none', '--init']
 
 
 class Failure(RuntimeError):
@@ -153,8 +157,8 @@ class Manager:
                 if closed.exists() or remaining <= 0 or remaining > 7_500_000: raise Failure('Session is closed or expired')
                 current = self.lookup(request)
                 if current is None:
-                    args = ['container', 'create', '--name', self.name(request), '--memory', '256m',
-                            '--cpus', '0.3', '--network', 'none', '--init', *self.hardening(request['image'])]
+                    args = ['container', 'create', '--name', self.name(request), *BASE_OPTIONS,
+                            *self.hardening(request['image'])]
                     for key, value in self.labels(request).items(): args += ['--label', key + '=' + value]
                     args += [request['image'], 'sleep', 'infinity']
                     self.docker(args)

@@ -75,7 +75,7 @@ def semantic_verdict(snapshot, case_index, stdout):
             raise OboCheckerError('Invalid RR verdict')
         return verdict
     if question.get('ioFormat') == 'text-v1':
-        # Baekjoon-style text (2026-11-08): stdin is the model's text input, stdout is compared line by line.
+        # Baekjoon-style text: stdin is the model's text input, stdout is compared line by line.
         if question.get('assessmentMode') != 'result':
             raise OboCheckerError('Invalid text grading contract')
         verdict = invoke({'operation': 'textGrade', 'scenarioId': instances[0]['scenarioId'],

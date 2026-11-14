@@ -1,4 +1,4 @@
-"""Installed on the VM host only after approval. No shell interpolation or broad deletion."""
+"""Runs on the VM host as /usr/local/libexec/diveon-vm-helper.py. No shell interpolation or broad deletion."""
 import contextlib
 import json
 import os

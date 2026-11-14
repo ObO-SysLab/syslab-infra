@@ -1,35 +1,68 @@
-# SysLab 인프라
+# syslab-infra
 
-운영 인프라 구성·운영 정보의 저장소다. 현재 배포 경로가 사용하는
-`grader/`, `vm/`, `ops/` 실행 코드와 CI 회귀 테스트도 함께 유지한다.
-AWS 자원의 테라폼 코드는 별도 저장소 `syslab-terraform`에 있다.
+DiveOn에서 API 서버 밖에서 도는 코드를 모아 둔 저장소다. 코딩 문제 채점기와 실습 환경(컨테이너 도우미, 웹 터미널, 실습 이미지 빌드)이 여기에 있다.
+AWS 자원 정의는 [syslab-terraform](https://github.com/ObO-SysLab/syslab-terraform)에 있다.
 
-## 현재 네트워크
+## 구성
 
-2026-11-04 합의한 방식은 **기존 NAT EC2 + S3 Gateway**다. 유료 Interface Endpoint를
-새로 생성하지 않는다. [네트워크 구성](grader/runner/NAT_NETWORK.md),
-[리소스 ID](grader/runner/network.nat.json), [NAT 운영 정보](vm/nat-migration.md)를 확인한다.
-리소스 ID 기록은 실시간 상태나 전체 서비스 배포 완료를 뜻하지 않는다.
+| 폴더 | 하는 일 | 운영에서 도는 곳 |
+| --- | --- | --- |
+| [`grader/`](grader/README.md) | 코딩 제출 채점. 조정기가 실행기를 띄우고 결과를 저장한다. | Lambda `syslab-grader-coordinator`, ECS 작업 정의 `syslab-isolated-runner` |
+| [`grader/runner/`](grader/runner/MONITOR.md) | 격리 실행기, 오래 남은 실행기 정리 | Fargate 작업, Lambda `syslab-runner-monitor`(1분마다) |
+| [`vm/lifecycle/`](vm/lifecycle/README.md) | 사용자별 실습 컨테이너 생성·확인·삭제 | VM EC2 `/usr/local/libexec/diveon-vm-helper.py` |
+| [`vm/ws-server/`](vm/ws-server/README.md) | 브라우저 터미널을 컨테이너 셸에 잇는 WebSocket 서버 | VM EC2 `ws-terminal.service` |
+| [`vm/codebuild/`](vm/codebuild/README.md) | 출제자가 올린 Dockerfile로 실습 이미지 빌드 | CodeBuild `syslab-practice-build` |
+| [`ops/`](ops/RELEASE.md) | 릴리스 묶음과 체크섬 생성 | GitHub Actions |
 
-기존 Endpoint 생성 문서는 [과거 구성 기록](docs/history/interface-endpoints.md)에 보존했다.
-현재 운영 명령으로 실행하지 않는다.
+실습 환경 전체 흐름은 [vm/README.md](vm/README.md)에 정리했다.
 
-## 보관 기준
+## 코딩 채점 흐름
 
-| 위치 | 내용 |
-| --- | --- |
-| `grader/`, `vm/` | 배포에 필요한 실행 코드·설정·운영 문서 |
-| `ops/`, `.github/workflows/` | 릴리스 포장 및 지속적인 회귀 검증 |
-| 작업 공간의 `../obo-harness/experiments/` | 임시 실험 코드·검증 전용 Dockerfile·예전 Fargate 예제 |
-| `../obo-harness/evidence/` | AWS 조회 결과·검증 보고서·종료/정리 근거 |
-| `../obo-harness/rollback/` | 변경 전 백업·임시 빌드 산출물; 배포 소스와 구분 |
-| 작업 공간의 `../syslab-test/` | CI·빌드·릴리스가 쓰지 않는 테스트·예제 파일(원래 경로 구조 유지) |
+```text
+백엔드 ─ SQS syslab-grading-queue ─▶ Lambda 조정기
+                                      │ S3에서 코드·입력·정답을 읽는다
+                                      ▼
+                                 Fargate 실행기 (제출마다 새로 뜸)
+                                 코드와 입력만 받는다. 정답·DB 자격 증명은 없다
+                                 chroot · UID 10001 · seccomp · rlimit 안에서 컴파일·실행
+                                      │ 출력과 종료 상태만 돌려준다
+                                      ▼
+                                 조정기가 정답과 비교해 RDS에 결과를 저장한다
+```
 
-새 테스트용 서버 스크립트·로그·ZIP을 이 저장소에 추가하지 않는다. CI가 사용하는
-회귀 테스트는 제품 코드와 버전을 맞춰 유지하며, 릴리스 ZIP에는 넣지 않는다.
-`obo-harness`는 별도 로컬 Git 저장소이므로 아래 자료 링크는 두 저장소가 나란히 있는
-작업 공간 기준이다. 원격 CI는 `obo-harness`에 의존하지 않는다.
+제출에서 결과까지 40초대가 걸린다. 대부분은 실행기 Fargate 작업이 뜨는 시간이다.
 
-- [이번 파일 이동 목록](../obo-harness/evidence/2026-11-04-infra-layout/moves.json)
-- [실제 Fargate 검증](../obo-harness/evidence/2026-11-04-fargate-isolation/REPORT.md)
-- [릴리스 구성](ops/RELEASE.md)
+## 네트워크
+
+실행기와 VM은 사설 서브넷에 있고, 밖으로 나가는 트래픽은 기존 NAT EC2(`syslab-nat`)를 거친다. S3는 무료 Gateway 엔드포인트로 간다. 유료 Interface 엔드포인트는 쓰지 않는다.
+실행기 서브넷의 허용·차단 규칙은 [grader/runner/NAT_NETWORK.md](grader/runner/NAT_NETWORK.md)에 있다.
+
+## 테스트
+
+PR과 `main`·`fix/**`·`feat/**` push마다 [CI](.github/workflows/deploy.yml)가 아래를 돌린다. AWS에는 접속하지 않는다.
+
+- Python 단위 테스트: `grader/tests`, `vm/codebuild`, `vm/lifecycle`, `ops`
+- Node 테스트: `grader/tests/launch.test.mjs`, `vm/ws-server`
+- 조정기·실행기·Lambda 이미지 빌드, 실제 Linux 컨테이너에서 실행기 격리와 실습 명령어 제한 검사
+- 릴리스 묶음 생성(아티팩트로 남김)
+
+로컬에서는 이렇게 돌린다.
+
+```sh
+pip install -r grader/requirements.txt
+python -B -m unittest discover -s grader/tests -p 'test_*.py'
+python -B -m unittest discover -s vm/codebuild -p 'test_*.py'
+python -B -m unittest discover -s vm/lifecycle -p 'test_*.py'
+node --test grader/tests/launch.test.mjs
+cd vm/ws-server && npm ci && node --test auth.test.js server.test.js terminal.test.js
+```
+
+## 배포
+
+CI는 검사와 묶음 생성까지만 한다. 운영 반영은 사람이 직접 한다.
+
+- 채점 Lambda: `main` 커밋의 `grader/`로 `Dockerfile.lambda` 이미지를 빌드해 ECR `diveon-runner-validation`에 `coordinator-lambda-<커밋>` 태그로 올리고, Lambda 이미지를 그 digest로 바꾼다. 환경 변수 `DEPLOYED_IMAGE`에 태그를 적는다.
+- 실행기: `grader/runner/Dockerfile` 이미지를 같은 ECR에 올리고 작업 정의를 새 digest로 등록한다. 조정기의 `RUNNER_TASK_DEFINITION`도 함께 바꾼다.
+- VM 도우미·ws-server: VM의 `/var/lib/diveon/releases/`에 이전 파일을 남긴 뒤 바꾼다. 절차는 각 폴더 문서에 있다.
+
+`grader/Dockerfile`, `grader/lambda_trigger.mjs`, `grader/launch.mjs`는 2026-11-12까지 쓰던 Fargate 조정기 경로다. 운영 자원은 11/13에 지웠고, 코드는 테스트와 함께 남겨 두었다.

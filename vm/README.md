@@ -50,7 +50,7 @@
 | 이전 버전 | `/opt/diveon/vm-20261105`, `/var/lib/diveon/releases/vm-before-20261113`(오전: 도우미·서비스 백업), `vm-before-20261113b`(오후: 프로세스·스왑 제한 전 도우미) |
 | 이미지 | ECR `syslab-practice`(옛 `prob-N` 태그와 새 `build-<UUID>` 태그) |
 
-배포와 되돌리기 기록은 작업 공간의 `obo-harness/evidence/2026-11-13-practice-rollout/`과 `2026-11-13-followups/`에 있다.
+되돌릴 때는 위 표의 "이전 버전" 위치에 남긴 파일을 쓴다.
 
 ## 디렉터리
 

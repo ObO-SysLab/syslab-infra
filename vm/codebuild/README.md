@@ -65,4 +65,4 @@ python -B -m unittest discover -s vm/codebuild -p 'test_*.py' -v
 python -B -m unittest discover -s vm/lifecycle -v
 ```
 
-빌드 모의 10개, 기존 VM helper 18개+digest 전달 1개를 검증한다. 실제 CodeBuild 빌드·SQS 전달·ECR pull은 별도 승인 후 검증해야 한다. `sqs_message_sample.json`은 과거 참고 자료이며 새 소비자는 source/detail-type/project-name/build-id가 있는 표준 이벤트를 요구한다. `Dockerfile.zip` 예제는 자동 수정하지 않았다.
+빌드 모의 10개, 기존 VM helper 18개+digest 전달 1개를 검증한다. 실제 CodeBuild 빌드·SQS 전달·ECR pull은 별도 승인 후 검증해야 한다. 새 소비자는 source/detail-type/project-name/build-id가 있는 표준 이벤트를 요구한다. 과거 메시지 예시 `sqs_message_sample.json`과 업로드 예제 `Dockerfile.zip`은 2026-11-14에 작업 공간의 `../syslab-test/infra/vm/codebuild/`로 옮겼다.

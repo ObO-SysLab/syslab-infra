@@ -1,4 +1,4 @@
-"""Real shared checker; Baekjoon-style text answers (text-v1, 2026-11-08) and public-record boundaries."""
+"""Real shared checker; Baekjoon-style text answers (text-v1) and public-record boundaries."""
 from pathlib import Path
 import sys,unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
@@ -43,7 +43,7 @@ class TextAssessmentTest(unittest.TestCase):
         v=semantic_verdict(self.snapshot(),0,'');self.assertFalse(v['correct'])
         v=semantic_verdict(self.snapshot(),0,'x'*100);self.assertFalse(v['correct'])
     def test_inputs_that_needed_json_before(self):
-        # 2026-11-09: DP order finding (any order reaching every goal at its last action) and a PC initial buffer line.
+        # DP order finding (any order reaching every goal at its last action) and a PC initial buffer line.
         dp = self.snapshot('DP', '3 ordered findSchedule\nA B C\n0 0 0\n1 1 1\ngoal 1 1 1\n60\n' + ' '.join(['A', 'B', 'C'] * 20))
         self.assertTrue(semantic_verdict(dp, 0, ' '.join(['C', 'B', 'A'] * 9))['correct'])
         self.assertFalse(semantic_verdict(dp, 0, 'A B C')['correct'])

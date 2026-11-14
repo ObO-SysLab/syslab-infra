@@ -688,7 +688,7 @@ class ContestResultTest(unittest.TestCase):
         return path.read_text(encoding="utf-8-sig")
 
 
-    def test_audit07_real_migration_is_idempotent_and_constrains_ready_digest(self):
+    def test_real_practice_build_migration_is_idempotent_and_constrains_ready_digest(self):
         migration = self.backend_file("ops/2026-10-30-practice-build.sql")
         with self.isolated_schema() as cur:
             cur.execute("CREATE TABLE problem_practice (prob_id bigint PRIMARY KEY, image_status text, ecr_image_uri text)")
@@ -715,7 +715,7 @@ class ContestResultTest(unittest.TestCase):
                     VALUES (4,'PENDING',%s,now(),now()+interval '10 minutes')""", (request,))
             self.assertEqual(caught.exception.pgcode, "23505")
 
-    def test_audit10_real_ledger_migration_seeds_both_histories_without_rewriting_counts(self):
+    def test_real_ledger_migration_seeds_both_histories_without_rewriting_counts(self):
         migration = self.backend_file("ops/2026-10-30-score-consistency.sql")
         with self.isolated_schema() as cur:
             cur.execute("""
@@ -739,7 +739,7 @@ class ContestResultTest(unittest.TestCase):
             cur.execute("SELECT solved_count FROM problem_summary")
             self.assertEqual(cur.fetchone(), (99,))
 
-    def test_audit10_real_rank_matches_score_time_null_and_banned_policy(self):
+    def test_real_rank_matches_score_time_null_and_banned_policy(self):
         source = self.backend_file("src/main/java/net/diveon/backend/domain/contest/service/ContestRankQuery.java")
         query = source.split('"""')[1].replace("?", "%s")
         with self.isolated_schema() as cur:

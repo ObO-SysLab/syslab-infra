@@ -1,132 +1,60 @@
-# AUDIT-02 deployment and rollback plan
+# 웹 터미널 운영
 
-Local implementation only. No server, production DB, AWS configuration, deployment,
-or remote push is authorized by this file. Obtain approval for the concrete target
-versions, maintenance window and recovery steps before executing this plan.
+## 백엔드와 주고받는 것
 
-## Contract
+1. 브라우저가 로그인 토큰으로 `POST /api/vm/terminal-ticket`을 부른다. 본문은 `{ "probId": 9, "containerId": "<64자 Docker ID>" }`이다.
+   응답은 `{ "ticket": "<43자 무작위 값>", "expiresAt": <epoch 밀리초> }`이다. 소유자, 문제, RUNNING 상태, 남은 만료 시간이 모두 맞아야 발급된다.
+2. 브라우저가 Origin `https://diveon.net`으로 `/ws/terminal?container_id=<ID>`를 연다. URL에는 로그인 토큰도 티켓도 없다. 첫 텍스트 프레임은 `{ "type": "auth", "ticket": "..." }`이다.
+3. 터미널 서버가 `X-Terminal-Service-Key` 헤더와 함께 `POST /internal/terminal/connect`를 부른다. 본문은 `{ "ticket": "...", "containerId": "..." }`이다.
+   백엔드는 Redis에서 티켓을 한 번에 꺼내 지우고(GETDEL), DB 세션을 다시 확인한 뒤 `{ "lease": "...", "containerId": "...", "expiresAt": ... }`를 돌려준다.
+4. 터미널 서버는 PTY 출력보다 먼저 `{ "type": "ready" }`를 보낸다. 그 뒤로는 PTY 입출력을 그대로 주고받는다.
+5. 터미널 서버는 5초마다 `POST /internal/terminal/check`에 `{ "lease": "..." }`를 보낸다. lease는 서버만 쓰고, 티켓 대신 쓸 수 없다.
 
-1. Browser authenticates `POST /api/vm/terminal-ticket` with its existing login Bearer
-   token. Body: `{ "probId": 9, "containerId": "<full 64-character Docker ID>" }`.
-   Response: `{ "ticket": "<43-character random token>", "expiresAt": <epoch milliseconds> }`.
-   Owner, problem, RUNNING status and non-null future expiry must match.
-2. Browser opens `/ws/terminal?container_id=<ID>` with Origin `https://diveon.net`.
-   No login token or ticket is present in the URL. The first text frame is
-   `{ "type": "auth", "ticket": "..." }`. No shell runs before verification.
-3. Terminal calls `POST /internal/terminal/connect` with the machine credential in
-   `X-Terminal-Service-Key` and `{ "ticket": "...", "containerId": "..." }` in the body.
-   Backend consumes the Redis ticket atomically (GETDEL), rechecks the DB session,
-   and returns `{ "lease": "...", "containerId": "...", "expiresAt": ... }`.
-4. Terminal queues `{ "type": "ready" }` before PTY output. The browser attaches
-   xterm only after this frame. Subsequent frames preserve the existing raw PTY I/O.
-5. Terminal calls `POST /internal/terminal/check` with the machine credential and
-   `{ "lease": "..." }` every 5 seconds (start-to-start). Backend reads the lease
-   and the current DB session. Leases are server-only and cannot be used as tickets.
+티켓은 최대 30초, lease는 세션의 원래 만료 시각까지 유효하다. 확인이나 재접속으로 세션이 늘어나지 않는다.
+세션이 멈췄거나 지워졌거나 다른 컨테이너로 바뀌었을 때, 그리고 Redis·DB 장애나 이상한 응답이 오면 접속을 막는다. 백엔드 호출은 응답 본문까지 2초 안에 끝나야 한다. 그래서 세션이 끊긴 뒤 약 7초 안에 연결이 닫힌다. 인증하지 않은 소켓은 5초 뒤에 닫는다.
+Redis 키는 `terminal:v1:ticket:`, `terminal:v1:lease:`로 시작하고 저절로 만료된다.
 
-Ticket TTL is at most 30 seconds. Lease TTL ends at the session's original expiry;
-neither check nor reconnect extends a session. A stopped/deleted/reassigned session,
-changed container/expiry, missing grant, Redis/DB failure or invalid response denies
-access. Calls including response body reads time out after 2 seconds. With a responsive
-event loop, revocation/outage is observed within about 7 seconds; this is not a hard
-real-time guarantee under host suspension/overload. Known expiry has its own local
-timer and input/output checks. Idle unauthenticated sockets terminate after 5 seconds.
+## 운영 구성
 
-The backend uses the same system timezone as existing `VmService` LocalDateTime
-creation. Verify the production JVM timezone and existing expires_at interpretation
-before deployment; do not change them incidentally.
+| 위치 | 내용 |
+| --- | --- |
+| 터미널 서버 | `/opt/diveon/vm-20261113/ws-server`, systemd `ws-terminal.service`, `10.0.3.30:8081`에서만 듣는다 |
+| 환경 파일 | `/etc/diveon/terminal.env` (root, 0600). systemd가 ec2-user로 바꾸기 전에 읽는다 |
+| 백엔드 연결 | systemd `diveon-terminal-tunnel.service`. VM 계정 `diveon-tunnel`이 API EC2의 `diveon-terminal-tunnel` 계정으로 SSH 접속해 `127.0.0.1:18080` → API `127.0.0.1:8080`을 연다 |
+| 이전 버전 | `/opt/diveon/vm-20261105`, `/var/lib/diveon/releases/vm-before-*` |
 
-## Configuration and artifacts
+환경 변수:
 
-| Location | Configuration | Purpose |
-| --- | --- | --- |
-| Backend runtime | `TERMINAL_SERVICE_KEY` | Independent 32–256 character random secret; absent/short disables terminal grants |
-| VM `/etc/diveon/terminal.env` | `TERMINAL_SERVICE_KEY` | Same machine credential, never the login JWT secret |
-| VM environment | `TERMINAL_API_URL=http://127.0.0.1:18080` | Recommended deployment below uses an authenticated SSH tunnel |
-| VM environment | `TERMINAL_ALLOWED_ORIGIN=https://diveon.net` | Exact browser origin; no wildcard |
-| VM environment | `TERMINAL_BIND_HOST=10.0.3.30` | Observed VM private interface; verify before applying |
+| 이름 | 값 |
+| --- | --- |
+| `TERMINAL_SERVICE_KEY` | 백엔드와 같은 기계용 비밀 값(32–256자). 로그인 JWT 비밀 값과 다르다. 없거나 짧으면 백엔드가 터미널 접속을 내주지 않는다. |
+| `TERMINAL_API_URL` | `http://127.0.0.1:18080` (SSH 터널) |
+| `TERMINAL_ALLOWED_ORIGIN` | `https://diveon.net` (와일드카드 없음) |
+| `TERMINAL_BIND_HOST` | `10.0.3.30` |
 
-Only HTTPS or numeric loopback HTTP API URLs are accepted. Plain HTTP to a VPC IP
-is deliberately rejected. No credential values belong in Git, generated JARs,
-request/body tracing, terminal logs, screenshots or this document. Deliver a generated
-secret through the approved runtime secret channel. Protect the VM environment file
-with root ownership/mode 0600; systemd reads it before switching to ec2-user.
+`TERMINAL_API_URL`은 HTTPS이거나 숫자 루프백 주소의 HTTP만 받는다. VPC 사설 IP로 가는 평문 HTTP는 일부러 거절한다.
 
-Backend adds three Java classes and two exact POST security exceptions; each internal
-handler still requires the machine credential. There is no DB migration. Redis >= 6.2
-is required; the earlier inspection found Redis 7.2, which must be reverified.
-Redis keys use `terminal:v1:ticket:` and `terminal:v1:lease:` and expire automatically.
-The application Redis instance must be trusted and inaccessible to practice containers.
+터널 계정은 이 용도로만 쓰는 Ed25519 키를 쓰고, API 쪽 호스트 키를 고정했다. API 계정은 `127.0.0.1:8080`으로 가는 로컬 포워딩만 할 수 있고 셸·PTY·에이전트·X11 포워딩은 막혀 있다. 접속 출발지는 VM 보안 그룹으로 제한했다.
+`/internal/terminal/*`은 CloudFront와 공개 Nginx 경로로 열지 않는다.
 
-VM release contains `server.js`, `auth.js`, `terminal.js`, `package.json` and
-`package-lock.json`. Build/install native node-pty dependencies on the target Linux
-architecture in an isolated release directory using `npm ci`; do not copy Windows
-node_modules. Keep the observed `ws-terminal.service` name and working directory.
-`systemd-setup.sh` now only prints the reviewed unit template; it does not install,
-stop or start anything. Compare the existing unit before applying the template.
+비밀 값은 Git, JAR, 로그, 스크린샷, 이 문서 어디에도 넣지 않는다.
 
-## Proposed encrypted verification path (approval required)
+## 교체 절차
 
-Use a dedicated restricted SSH credential for VM -> API forwarding, not the user's
-personal key. Verify the API private address and host key from a trusted source first.
-On the API, restrict its authorized key to forwarding to `127.0.0.1:8080`, no PTY,
-agent forwarding or X11; use a dedicated OS account and allow only local forwarding
-with `PermitOpen 127.0.0.1:8080`. Restrict SSH network ingress to the VM security group.
-Do not expose `/internal/terminal/*` through CloudFront or public Nginx routes.
+1. 지금 서비스 파일, 환경 변수 이름, 배포 폴더의 파일 해시를 적어 두고 `/var/lib/diveon/releases/` 아래에 복사한다.
+2. 새 버전을 날짜가 붙은 새 폴더에 두고 VM에서 `npm ci`를 돌린다. node-pty는 네이티브 모듈이라 Windows의 `node_modules`를 복사하면 안 된다.
+3. `ws-terminal.service`의 작업 폴더와 실행 경로를 새 폴더로 바꾸고 서비스를 다시 띄운다. `systemd-setup.sh`는 서비스 파일 틀을 출력만 하고 설치하지 않는다.
+4. 확인한다.
+   - 잘못된 티켓은 `ready` 없이 닫히고, 허용하지 않은 Origin은 403을 받는다.
+   - 실제 실습 세션에서 입력·출력, Ctrl-C, 창 크기 변경, 종료가 된다.
+   - 세션을 멈추면 7초 안에 연결이 닫힌다.
+5. 크기 프레임처럼 프로토콜이 바뀌었으면 서버를 먼저 올리고 프론트엔드를 그다음에 배포한다.
 
-Prepare a separate tunnel unit with the following ExecStart (replace reviewed paths
-and API address before approval):
+## 되돌리기
 
-```text
-/usr/bin/ssh -NT -o BatchMode=yes -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/etc/diveon/api_known_hosts -o ServerAliveInterval=15 -o ServerAliveCountMax=2 -i /etc/diveon/terminal_tunnel_key -L 127.0.0.1:18080:127.0.0.1:8080 terminal-forward@<verified-api-private-ip>
-```
+1. API Nginx에서 `/ws/terminal`을 막고 `ws-terminal.service`를 멈춘다. 열려 있던 터미널은 모두 닫힌다.
+2. 서비스 파일을 이전 폴더로 되돌리고 다시 띄운 뒤, 위 확인을 거쳐 경로를 연다.
 
-The tunnel service needs `Restart=on-failure`, protected key files, and startup ordering
-before ws-terminal. A tunnel outage fails closed. A private HTTPS endpoint with proper
-certificate verification can replace this tunnel, but must be reviewed as a separate
-deployment configuration. These OS/network changes are prepared, not executed.
+인증 없는 옛 터미널로 돌아가지 않는다. 실습 컨테이너와 그 안의 데이터는 되돌리기로 지워지지 않는다. 티켓과 lease는 저절로 만료되므로 Redis를 비우지 않는다.
 
-## Approved execution sequence
-
-1. Record exact backend/frontend/terminal commit IDs, existing image digests, VM release
-   file hashes, service units, Nginx configuration and runtime configuration names.
-   Store protected rollback copies on the target hosts; do not copy secrets into notes.
-2. Confirm AUDIT-01 remains P0 and unresolved. This terminal change does not approve
-   enabling or deploying the unisolated grading service. Agree on deployment scope.
-3. Announce terminal maintenance. Block `/ws/terminal` in API Nginx, validate config,
-   then stop the old ws-terminal service so already-open unauthenticated sockets end.
-   Snapshot/list existing lab sessions for verification without altering their data.
-4. Install the encrypted verification path and runtime key after approval. Deploy the
-   reviewed backend version, then verify anonymous ticket rejection, owner issuance,
-   wrong-owner/expired/STOPPED rejection, one-use enforcement and internal key rejection.
-   Do not start the full application merely to run unit tests.
-5. Install a new Linux terminal release and the matching frontend build. Validate native
-   node-pty with a designated non-sensitive test lab. Confirm 80x24 interactive input,
-   output, Ctrl-C, exit/disconnect cleanup, and full 64-character container IDs.
-6. Start the new ws-terminal, verify authorized access and expiry/stop/outage closure,
-   restore the Nginx route only after these pass. Retest both ordinary and contest labs
-   in a real browser; inspect logs for accidental credential capture without printing keys.
-7. Record exact deployed versions, checks and resource final states. If temporary server
-   starts were approved, stop only those resources approved for cleanup.
-
-## Rollback / failure containment
-
-First block the public terminal route and stop ws-terminal, ending all terminal PTYs.
-Keep that route blocked while diagnosing or restoring the backed-up backend/frontend
-and service configuration. **Do not reopen the old unauthenticated terminal.** Remove
-or stop the newly introduced tunnel only after dependent terminal access is disabled.
-Existing lab containers/data are not deleted by this rollback. Tickets/leases expire
-without a Redis flush; do not flush the shared Redis database. Reopening requires a
-validated authenticated release and approval. Other existing grading commits are
-preserved; do not reset branches or drop grading tables as part of this rollback.
-
-## Verification limits
-
-Local unit tests exercise real authorization code with mocked DB/Redis and mocked
-WebSocket/PTY boundaries. Atomic consumption uses Redis GETDEL, but these tests do
-not start a real Redis server. No production connectivity or complete browser-to-Docker
-test is implied. Native Linux node-pty build/runtime and SSH forwarding must be verified
-in the approved deployment environment. Killing a PTY ends this connection; container
-expiry/deletion and arbitrary descendant process cleanup remain AUDIT-03/04 scope.
-
-Implementation references: [node-pty API](https://github.com/microsoft/node-pty/blob/main/typings/node-pty.d.ts),
-[Spring Redis ValueOperations](https://docs.spring.io/spring-data/redis/docs/current/api/org/springframework/data/redis/core/ValueOperations.html).
+참고: [node-pty](https://github.com/microsoft/node-pty/blob/main/typings/node-pty.d.ts), [Spring Data Redis ValueOperations](https://docs.spring.io/spring-data/redis/docs/current/api/org/springframework/data/redis/core/ValueOperations.html)

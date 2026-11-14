@@ -1,70 +1,35 @@
-# Existing NAT EC2 network
+# 실행기 네트워크
 
-Selected by the user on 2026-11-04 to avoid hourly interface endpoint costs.
-This replaces the earlier endpoint-only network proposal; it does not change grading,
-execution_protocol, sandbox limits or problem disclosure contracts.
+실행기 Fargate 작업은 전용 사설 서브넷에서 뜨고, 밖으로 나가는 트래픽은 기존 NAT EC2(`syslab-nat`)를 거친다. 시간당 요금이 붙는 Interface 엔드포인트 대신 이미 있던 NAT를 다시 쓰기로 2026-11-04에 정했다.
+자원 ID는 [network.nat.json](network.nat.json)에 있다. 실행기 서브넷·보안 그룹 ID는 조정기 환경 변수 `RUNNER_SUBNET_ID`, `RUNNER_SECURITY_GROUP`에 들어간다.
 
-## Resources
+## 허용하는 길
 
-Region/account: ap-northeast-2 / 290373175858. Reuse VPC vpc-059c175e86a99bd3b,
-NAT i-08761f745077023e3 (eni-0795de4b87a66e505, 10.0.1.107), public IGW route,
-and S3 Gateway vpce-00e4d5879e9739088. Never move the API Elastic IP to the NAT.
-
-Created network identifiers are in network.nat.json. They are a deployment input,
-not proof that the coordinator/runner image, IAM, bucket and task definitions exist.
-Set RUNNER_SUBNET_ID and RUNNER_SECURITY_GROUP from this file only after live review.
-The coordinator must use its own network/role, not the runner's restricted subnet.
-
-## Traffic contract
-
-| Component | Allowed path | Denied / limitation |
+| 대상 | 허용 | 막는 것 |
 | --- | --- | --- |
-| NAT EC2 | Forward existing private workloads' HTTPS; VM HTTP package downloads | No public application ingress; temporary admin SSH /32 removed after inspection |
-| ECS image and log transport | Public HTTPS via NAT, S3 layers via Gateway | Runner public IP DISABLED; no paid endpoints |
-| Trusted worker | Exact-object regional S3 signed GET/POST via Gateway | No redirects/proxies; no task role, DB secrets or shared storage |
-| Compiler and submitted program | Existing local stdin/stdout/files contract | seccomp denies socket/connect; chroot, UID10001, clean env and resource limits retained |
-| Runner subnet | Outbound TCP443, inbound return ports1024–65535 | Dedicated NACL first denies 10/8, 172.16/12, 192.168/16 in both directions; other traffic including IPv6 defaults deny |
+| NAT EC2 | 사설 서브넷의 HTTPS, VM의 패키지 내려받기(HTTP) | 공개 인바운드 |
+| 이미지·로그 전송 | NAT를 거친 HTTPS, 이미지 레이어는 S3 Gateway | 실행기 공인 IP 없음 |
+| 실행기 워커 | 서명된 S3 GET/POST (리전 HTTPS, Gateway 경유) | 리다이렉트·프록시, 작업 역할, DB 비밀 값 |
+| 컴파일러·제출 코드 | 표준 입출력과 작업 폴더 | seccomp가 소켓 생성을 막는다 |
+| 실행기 서브넷 | 나가는 TCP 443, 돌아오는 포트 1024–65535 | 전용 NACL이 10/8, 172.16/12, 192.168/16을 양방향으로 먼저 막는다. IPv6 포함 나머지는 기본 차단 |
 
-Security groups have allow rules only: HTTPS to 0.0.0.0/0 alone would also permit
-private HTTPS. The dedicated subnet ACL supplies that private-address denial without
-altering the existing VM/RDS ACL. AWS-provided DNS and platform metadata have special
-filtering behavior: do not claim the ACL blocks them. Prove submitted-code socket denial
-and absence of task credentials separately.
+보안 그룹에는 허용 규칙만 쓸 수 있어서, `0.0.0.0/0`으로 HTTPS를 열면 사설 주소로 가는 HTTPS도 같이 열린다. 사설 주소 차단은 그래서 실행기 서브넷 전용 NACL에 두었다. VM·RDS 쪽 NACL은 건드리지 않았다.
+AWS DNS와 메타데이터 주소는 NACL 적용 방식이 다르므로, NACL이 이것까지 막는다고 보면 안 된다. 제출 코드가 메타데이터에 닿지 못하는 이유는 seccomp가 소켓을 막고 작업 역할이 없어서다.
 
-The trusted runner process can reach arbitrary public HTTPS destinations. If that process
-or its sandbox is compromised, NAT is not a destination allowlist. This is the explicit
-difference from the endpoint-only proposal. Endpoint policies also would not replace the
-existing sandbox. Do not relax seccomp or fall back to the unrestricted grader on failure.
+## 한계
 
-S3 exchange bucket policy must retain TLS/private access controls and allow the exact
-Gateway endpoint used by the worker. Account for coordinator cleanup/monitor access before
-adding a blanket source-endpoint deny. Do not change the shared Gateway policy in a way
-that breaks existing code, image-layer or practice buckets.
+실행기 워커 프로세스는 공개 HTTPS 주소라면 어디든 나갈 수 있다. NAT는 목적지 허용 목록이 아니다. 워커나 격리가 뚫리면 외부로 나가는 길이 있다는 뜻이고, Interface 엔드포인트만 쓰는 구성과 가장 크게 다른 점이다.
+그래서 seccomp를 풀거나, 실패했을 때 격리 없는 채점기로 돌아가는 일은 하지 않는다.
 
-## Operations
+교환 버킷 정책은 TLS와 비공개 접근을 유지하고, 워커가 쓰는 Gateway 엔드포인트를 허용해야 한다. 공유 Gateway 엔드포인트 정책을 바꿀 때는 코드·이미지 레이어·실습 버킷 접근이 깨지지 않는지 먼저 본다.
 
-- NAT source/destination checking must remain disabled; Linux IP forwarding and MASQUERADE
-  must survive boot. Existing iptables-restore.service loads /etc/iptables/rules.v4.
-- NAT shares an AZ with the new runner subnet (ap-northeast-2a). Existing VM is in another
-  AZ; its cross-AZ transfer is not eliminated by this change.
-- NAT is a single point of failure and t3.nano has limited capacity. Monitor CPU credits,
-  connectivity and concurrency; do not assume endpoint-level availability or throughput.
-- NAT stop/start may change its public IPv4. Route to the stable ENI, never the public IP.
-  Re-query the address before administration and verify the pinned SSH host key.
-- No automatic 72-hour shutdown is installed by this network change. Start the three-day
-  window only when full validation is ready; record an end time and responsible cleanup.
-- A stopped NAT intentionally leaves default routes unusable. Do not mistake this for a
-  reason to open the runner to an unrestricted fallback path.
+## 운영
 
-## Validation still needed for production
+- NAT EC2는 소스/대상 확인이 꺼져 있어야 한다. IP 포워딩과 MASQUERADE는 재부팅 뒤에도 `iptables-restore.service`가 `/etc/iptables/rules.v4`로 다시 건다.
+- NAT와 실행기 서브넷은 같은 가용 영역(ap-northeast-2a)에 있다. VM은 다른 가용 영역이라 영역 간 전송은 남아 있다.
+- NAT는 단일 장애 지점이고 t3.nano라 처리량이 작다. CPU 크레딧과 연결 상태를 본다.
+- NAT를 껐다 켜면 공인 IPv4가 바뀔 수 있다. 라우팅은 ENI를 가리키므로 영향이 없지만, 관리 접속 전에는 주소와 호스트 키를 다시 확인한다.
+- API 서버의 Elastic IP를 NAT로 옮기지 않는다.
+- NAT가 꺼져 있으면 실행기는 이미지를 받지 못해 채점이 멈춘다. 이것을 이유로 실행기에 다른 우회 경로를 열지 않는다.
 
-Network bootstrap (private Fargate ECR pull and CloudWatch log output) is separate from
-actual runner compatibility. Signed S3 GET/POST, runtime secret supply, Python/C/C++
-seccomp tests, internal-address denial against known live controls, orphan cleanup and
-end-to-end grading must be tested with the final runner/coordinator revisions.
-
-Evidence: ../../../obo-harness/evidence/2026-11-04-nat-network/ (workspace sibling;
-not part of this repository's deployable image).
-
-References: [NAT instance](https://docs.aws.amazon.com/vpc/latest/userguide/VPC_NAT_Instance.html),
-[SG limitations](https://docs.aws.amazon.com/vpc/latest/userguide/security-group-rules.html).
+참고: [NAT 인스턴스](https://docs.aws.amazon.com/vpc/latest/userguide/VPC_NAT_Instance.html), [보안 그룹 규칙](https://docs.aws.amazon.com/vpc/latest/userguide/security-group-rules.html)

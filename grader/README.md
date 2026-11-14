@@ -1,184 +1,109 @@
-# DiveOn grading coordinator and isolated runner
+# 코딩 채점기
 
-AUDIT-01, linked AUDIT-09: production grading rollout is **not complete**.
-2026-11-04: the actual Fargate runner sandbox passed 10 synthetic tests, using a test
-image with the production candidate's identical base layers. Signed S3 transport,
-coordinator IAM/cleanup and full submission integration remain unverified.
-See the workspace sibling [Fargate validation evidence](../../obo-harness/evidence/2026-11-04-fargate-isolation/REPORT.md).
+코딩 제출 하나를 채점하는 코드다. 믿을 수 있는 조정기와, 제출 코드를 실제로 돌리는 격리 실행기로 나뉜다.
 
-## Execution boundary
+| 구성 | 파일 | 운영 |
+| --- | --- | --- |
+| 조정기 | `lambda_coordinator.py`, `grader.py`, `runner_client.py` | Lambda `syslab-grader-coordinator` (이미지 `Dockerfile.lambda`) |
+| 실행기 | `runner/worker.py`, `runner/sandbox.py`, `runner/launcher.c` | ECS 작업 정의 `syslab-isolated-runner` (이미지 `runner/Dockerfile`) |
+| 요청·결과 형식 | `execution_protocol.py` | 양쪽이 같이 쓴다 |
+| OBO 장면 생성 | `obo_checker.py`, `obo_assessment.py`, `obo_runtime/` | 조정기 안에서 node로 실행 |
+| 남은 실행기 정리 | `stale_runner_monitor.py` | Lambda `syslab-runner-monitor` ([MONITOR.md](runner/MONITOR.md)) |
 
-```text
-Spring → SQS → Lambda → trusted coordinator Fargate task → RDS / Redis
-                           │ reads code, inputs and expected answers from trusted S3
-                           │ sends code + inputs only through a separate exchange bucket
-                           ▼
-                       isolated runner Fargate task
-                       no task role / DB credentials / expected answers
-                       compiler + program → chroot / UID 10001 / seccomp / rlimits
-                           │ returns stdout, exit category and measurements
-                           └──────── coordinator compares answers and commits results
+## 흐름
+
+1. 백엔드가 제출 정보를 SQS `syslab-grading-queue`에 넣는다. Lambda는 메시지를 한 번에 하나씩 받는다.
+2. 조정기가 메시지 값을 검사하고(시간 1–30초, 메모리 16–1024MiB, 테스트케이스 1–100개), DB에 채점 시작을 기록한다.
+3. S3에서 코드·입력·정답을 읽는다. 실행기에는 코드와 입력만 교환용 버킷(`RUNNER_BUCKET`)으로 넘긴다. 실행기는 서명된 URL로 요청 하나를 받고 결과 하나를 올린다.
+4. 제출마다 Fargate 실행기 작업을 새로 띄운다. 작업 정의의 리비전과 이미지 digest를 띄우기 전에 확인한다.
+5. 실행기가 끝나면 조정기가 출력을 정답과 비교하고, OBO 장면을 만들어 결과와 함께 RDS에 저장한다. 대회 제출이면 대회 점수도 같은 트랜잭션에서 갱신한다.
+
+조정기는 제출 코드를 컴파일하거나 실행하지 않는다. 설정이 빠졌거나, 결과가 요청과 맞지 않거나, 격리 준비에 실패하면 인프라 실패로 처리한다. 격리 없이 실행하는 대체 경로는 없다.
+
+## 격리
+
+실행기 작업에는 작업 역할(task role)이 없다. DB 자격 증명, 정답, 공유 저장소도 없다. 루트 파일 시스템은 읽기 전용이고 `/work` 볼륨만 쓸 수 있다.
+
+실행기 안에서 제출 코드는 `launcher`가 만든 감옥 안에서 돈다.
+
+- 여분의 파일 디스크립터를 닫고 환경 변수를 비운다.
+- 컴파일러와 실행에 필요한 파일만 있는 chroot로 들어간다.
+- UID/GID를 10001로 낮추고 보조 그룹을 지운다. no-new-privileges를 건다.
+- seccomp 허용 목록을 건다. 소켓·연결 같은 네트워크 시스템 호출, 자격 증명·프로세스 그룹 변경을 막는다. 실행 단계에서는 fork와 스레드도 막는다.
+- 테스트케이스마다 새 작업 폴더를 쓴다.
+
+컴파일도 같은 감옥 안에서 한다. 이 격리는 커널과 컴파일러의 취약점까지 막아 주지는 못하므로, 실행기 이미지와 `launcher.c`의 의존성은 계속 갱신해야 한다.
+
+## 제한
+
+| 항목 | 값 |
+| --- | --- |
+| 언어 | Python 3.11, C, C++17 (Debian bookworm) |
+| 케이스당 시간·메모리 | 1–30초, 16–1024MiB (RSS가 아니라 가상 주소 공간) |
+| 케이스 수·전체 시간 | 1–100개, `20 + 개수 × (시간 + 2) ≤ 600`초 |
+| 컴파일 | 10초, 1024MiB, UID당 프로세스 32개 |
+| 실행 | 프로세스 1개, 추가 프로세스·스레드 금지 |
+| 코드·입력·정답 | 각각 1MiB |
+| 출력 | 실행 1번에 stdout+stderr 1MiB, stderr는 버린다 |
+| 성공 출력 합계 | 8MiB를 넘으면 이후 케이스는 출력 초과 |
+| 요청·결과 JSON | 각각 16MiB (base64 포함) |
+| 파일 크기·디스크립터 | 컴파일 16MiB, 실행 파일당 1MiB, 64개 |
+| 실행기 작업 | 1 vCPU, 2048MiB |
+| 교환 만료 | 780초 (작업 시작 시간 포함) |
+| 실행기 감시 시간 | 시작 뒤 최대 630초 |
+
+범위를 벗어난 요청은 값을 줄이지 않고 거절한다. 파일당 크기 제한은 전체 디스크 할당량이 아니라서, 작은 파일을 많이 만들면 작업의 임시 저장소가 찰 수 있다.
+
+## 판정
+
+저장되는 결과는 CORRECT, WRONG, ERROR 세 가지다.
+
+- 시간 초과는 WRONG이다.
+- 컴파일 오류, 실행 오류, 출력 초과, 잘못된 UTF-8 출력은 ERROR다.
+- 인프라 실패는 판정하지 않고 다시 시도한다.
+
+## 실패와 재시도
+
+- 채점 중 인프라 실패는 `coding_grade_job`에 기록되고, 백엔드가 다음 시도로 다시 보낸다.
+- 시작조차 못 한 메시지(본문 오류, DB 비밀 값을 못 읽음)만 SQS로 돌려보낸다. 세 번 실패하면 `syslab-grading-dlq`로 간다.
+- `begin_grading`의 시도 번호 검사로 같은 메시지가 두 번 와도 두 번 채점하지 않는다.
+- Lambda 제한 시간은 900초, SQS 숨김 시간은 960초다. 실행기 예산 780초보다 길게 잡았다.
+- 새 Lambda 컨테이너는 뜰 때 OBO 검사기를 한 번 데운다. 처음 뜬 컨테이너의 첫 채점이 node 기동 시간 때문에 실패한 적이 있어서 넣었다.
+
+## 설정
+
+Lambda 환경 변수:
+
+| 이름 | 내용 |
+| --- | --- |
+| `DB_SECRET_ARN` | DB 접속 정보가 든 Secrets Manager 비밀 (`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`) |
+| `S3_BUCKET` | 코드·테스트케이스 버킷 |
+| `RUNNER_BUCKET` | 실행기와 주고받는 교환 버킷 |
+| `RUNNER_CLUSTER`, `RUNNER_TASK_DEFINITION` | 실행기 클러스터, 리비전까지 고정한 작업 정의 ARN |
+| `RUNNER_SUBNET_ID`, `RUNNER_SECURITY_GROUP` | 실행기 전용 서브넷과 보안 그룹 ([NAT_NETWORK.md](runner/NAT_NETWORK.md)) |
+| `DEPLOYED_IMAGE` | 지금 올라간 이미지 태그 (기록용) |
+
+교환 버킷은 공개 차단, HTTPS 강제, SSE-S3, 짧은 보관 기간을 둔다. 실행기에 넘기는 값은 요청 GET URL과 결과 POST 정책 두 개뿐이고, 로그에 남기지 않는다.
+
+대회 순위는 DB에서 읽는다. `update_scoreboard`는 테스트 호환용으로 남은 빈 함수라서 Redis 설정은 필요 없다.
+
+## 배포
+
+1. `main` 커밋에서 `grader/`만 묶는다(`git archive`).
+2. `Dockerfile.lambda`로 이미지를 빌드해 ECR `diveon-runner-validation`에 `coordinator-lambda-<커밋>` 태그로 올린다.
+3. Lambda 이미지를 새 digest로 바꾸고 `DEPLOYED_IMAGE`를 고친다.
+4. 잘못된 메시지를 하나 보내 거절 로그가 남는지 보고, 실제 제출을 하나 채점해 본다.
+
+되돌릴 때는 Lambda 이미지를 이전 digest로 바꾼다. 실행기를 바꿀 때는 새 작업 정의를 등록하고 `RUNNER_TASK_DEFINITION`과 감시 Lambda의 `RUNNER_MONITOR_DEFINITIONS`를 함께 고친다.
+
+## 테스트
+
+```sh
+python -B -m unittest discover -s grader/tests -p 'test_*.py'
+node --test grader/tests/launch.test.mjs
 ```
 
-The coordinator never compiles or runs submitted code. It validates a pinned task revision
-and image digest before launch. Missing/unsafe settings, bad or incomplete results and
-sandbox setup failure are infrastructure failures. There is no unrestricted fallback.
-Existing result transactions, score idempotency and attempt/deadline fencing remain.
+실제 PostgreSQL을 쓰는 테스트는 `DIVEON_GRADING_PG_TEST=approved`와 `PG_BIN`(PostgreSQL bin 폴더)을 줘야 돈다. 없으면 건너뛴다.
+실행기 격리 검사는 Linux Docker가 필요해서 CI에서 돈다(`runner/test_*_linux.py`).
 
-The root runner worker holds two short-lived exchange capabilities. Submitted code has
-neither: the launcher closes extra descriptors, resets environment, enters a toolchain-only
-chroot, drops UID/GID/groups, sets no-new-privileges and installs a syscall allowlist.
-The worker, parent files, /proc, answers and credentials are outside the jail. Network
-syscalls and credential/process-group changes are denied. Compilation is confined too;
-runtime fork and threads are denied. Each case starts with fresh writable directories.
-Keep this security-sensitive native component and its compiler/kernel dependencies patched;
-the tests are not proof against every kernel or compiler vulnerability.
-
-## Protocol and limits
-
-Strict version-1 fields bind the random request ID, language, source, inputs and limits.
-Results must match that request and contain every case in order, or zero cases on compile
-failure. Expected-answer/credential fields are invalid. Numeric and byte sizes are bounded.
-
-| Limit | Implementation |
-| --- | --- |
-| Languages | Python 3.11, C, C++17 from Debian bookworm |
-| Case time / memory | 1–30 seconds / 16–1024 MiB **virtual address space**, not RSS |
-| Cases / aggregate budget | 1–100; `20 + count * (seconds + 2) <= 600` |
-| Compiler | 10 seconds / 1024 MiB / 32 processes per UID |
-| Runtime | 1 process; additional processes and threads denied |
-| Source / each input / each expected answer | 1 MiB each |
-| stdout + stderr | 1 MiB combined per execution, stderr discarded |
-| Successful stdout aggregate | 8 MiB threshold; later cases return output-limit error |
-| JSON request / result | 16 MiB each, including base64 overhead |
-| File size / file descriptors | compile 16 MiB, runtime 1 MiB per file / 64 descriptors |
-| Runner task | 1 vCPU / 2048 MiB / dedicated ephemeral work volume |
-| Exchange expiry / polling budget | 780 seconds including startup allowance |
-| Independent worker watchdog | at most 630 seconds after worker startup, shortened to request expiry |
-
-Limits reject invalid requests rather than silently clamping. Existing problem settings,
-reference solutions and case sizes need compatibility checks before rollout; backend
-authoring screens do not enforce every new ceiling yet. Per-file limits are not a total
-disk quota: many small files can exhaust task ephemeral storage. Docker local tests add
-a 2 GiB tmpfs and PID cap, which are **not** Fargate task-definition options.
-
-Normally reaped processes report their own wait4 peak RSS; forcibly terminated processes
-may report zero. This is not precise accounting of every failed process's peak memory.
-Persisted results stay CORRECT / WRONG / ERROR. Time limit stays WRONG as before;
-compile/runtime/output-limit and invalid UTF-8 output become ERROR. Infrastructure failures
-remain retryable failures, never judged ERROR.
-
-## Configuration
-
-Lambda: ECS_CLUSTER, pinned TASK_DEFINITION, SUBNET_ID, SECURITY_GROUP.
-Package lambda_trigger.mjs as index.mjs with launch.mjs at ZIP root; handler index.handler.
-Messages must include memoryLimit. Overrides carry submission/contest/attempt context and
-MEMORY_LIMIT, **no DB credentials**.
-
-Coordinator retains DB_HOST/DB_NAME/DB_USER/DB_PORT/DB_PASSWORD, S3_BUCKET and Redis settings.
-Inject DB_PASSWORD through coordinator ECS runtime secrets. New mandatory settings:
-RUNNER_BUCKET, RUNNER_CLUSTER, RUNNER_TASK_DEFINITION (full ARN/revision), RUNNER_SUBNET_ID,
-RUNNER_SECURITY_GROUP.
-
-- Use a separate private, DNS-compatible, dot-free exchange bucket in ap-northeast-2.
-  Block public access, require HTTPS, use SSE-S3, and apply short retention for abandoned
-  executions/ objects. If versioning is enabled, expire noncurrent versions too.
-- Coordinator IAM needs trusted input reads, exchange Get/Put/Delete, pinned runner RunTask
-  and DescribeTaskDefinition, owned-task Describe/Stop, cluster ListTasks for uncertain
-  launch recovery, and PassRole for the runner execution role only. Scope resource ARNs and
-  conditions during deployment review; policies are not created or proven by this code.
-- runner/task-definition.example.json has **placeholders**. Pin a reviewed image digest,
-  use a dedicated ECR/logs execution role, no task role, secrets, sidecars, shared storage or
-  ports. Preserve read-only root, init, capability drops and only the /work volume. Root
-  performs jail setup; submitted code runs as UID 10001.
-- REQUEST_URL is an exact-object GET; RESULT_POST is an exact-object, expiring, size-bounded
-  POST. They are the only runner overrides. Do not log their values or expose task inspection.
-  The S3 client pins regional HTTPS, virtual addressing and SigV4.
-- The selected deployment uses the existing NAT EC2, not paid interface endpoints:
-  see [NAT network contract](runner/NAT_NETWORK.md). The runner has no public IP or ingress;
-  a dedicated subnet ACL denies RFC1918 traffic, while TCP443 to public destinations is
-  allowed through NAT for trusted image/log transport. This is not a public-internet deny
-  or an AWS-domain allowlist. S3 uses the existing free Gateway endpoint.
-  Worker transport still accepts only regional S3 HTTPS without redirects/proxies.
-  Compiler and submitted code cannot create sockets, including to metadata, under seccomp.
-  Task-definition validation does not prove SG, ACL, IAM, bucket policy or sandbox isolation;
-  verify these independently on Fargate before opening submissions.
-
-### Lambda coordinator (2026-11-12, not yet deployed)
-
-Measured production latency is 92–99 s per coding submission. Two sequential Fargate cold
-starts dominate: the coordinator task takes 17–25 s and the runner task 24–30 s. The Lambda
-coordinator removes the first cold start. The runner stays a fresh, credential-free Fargate
-task per submission.
-
-- Image: `Dockerfile.lambda`. It uses the same base and trusted files as `Dockerfile` and adds
-  `awslambdaric`. The handler is `lambda_coordinator.handler`, attached to the existing grading
-  SQS queue with batch size 1.
-- Each record is checked with the admission rules of `launch.mjs`, then passed to
-  `grader.configure()` and `grader.main()`. In the ECS task, `configure(os.environ)` does the
-  same thing once per task.
-- `DB_SECRET_ARN` holds the grading DB secret (JSON with DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD).
-  It is read once per warm container. S3_BUCKET, the runner settings and the Redis settings are
-  the same environment variables the coordinator task uses.
-- Run it in the coordinator's VPC subnet and security group, so it reaches RDS, Redis, ECS and
-  S3 through the existing NAT and S3 Gateway path. Timeout is 900 s: the runner budget is
-  780 s, including the startup allowance. The SQS visibility timeout must be longer than the
-  function timeout. Cap reserved concurrency so parallel runners and DB connections stay bounded.
-- The execution role needs the coordinator task role's permissions,
-  `secretsmanager:GetSecretValue` on that one secret, and VPC ENI access.
-- Failure semantics are unchanged:
-  - A grading infrastructure failure is recorded in `coding_grade_job`, and the backend
-    re-dispatches it as the next attempt.
-  - Only messages that could not start (bad body, unreachable DB or secret) return to SQS.
-  - Attempt fencing in `begin_grading` keeps a redelivery from grading twice.
-- Rollback: point the SQS event source mapping back at `syslab-grader-trigger`. That restores
-  the Fargate coordinator, whose task definition is untouched.
-
-`runner_client` also reads the result once the runner container has exited, using its exit
-code. It no longer waits for the task to reach `STOPPED`; Fargate deprovisioning added
-15–26 s after the program ended.
-
-## Rollout and recovery — separate approval required
-
-1. Inventory actual queue/task revisions/digests, IAM, secret references, networking,
-   retry deadlines and problem limits. Record rollback references without secret values.
-   Back up DB before the separate recovery migration.
-2. Prepare exact exchange bucket/retention, ECR, task, role, network, coordinator secret
-   and image changes. Obtain approval before AWS mutations, image push or deployment.
-3. In an approved dedicated AWS test scope, verify Fargate chroot/seccomp compatibility,
-   signed GET/POST, trusted-bucket denial, no task-role endpoint, stop and orphan handling.
-4. Pause grading dispatch and identify/drain legacy queue/tasks. Deploy compatible backend
-   recovery schema/code, Lambda, coordinator and pinned runner revision. Keep
-   grading.recovery.enabled=false until its migration and integration checks pass.
-   Old messages with missing/invalid memory limits need explicit handling.
-5. Check normal/contest Python/C/C++, incorrect/compile/runtime/time/output cases, duplicate
-   and stale attempts, missing result, lost launch response, failed StopTask and coordinator
-   death. Confirm DB/score consistency and task/object cleanup before reopening dispatch.
-6. On failure, pause dispatch, stop only identified test/new tasks, preserve evidence and
-   restore compatible version references while grading stays closed. **Do not reopen the
-   old unrestricted grader.** Do not undo committed results or drop recovery tables.
-
-A known task ARN is stopped on coordinator failure. Lost RunTask responses use unique
-startedBy lookup, but ECS eventual consistency makes one lookup insufficient to guarantee
-discovery. The worker watchdog bounds execution once started. Coordinator death before
-worker startup, prolonged provisioning and failed StopTask still need an external stale-task
-monitor. It is now implemented locally in stale_runner_monitor.py with a default dry-run,
-exact cluster/revision/group ownership and repeated scans; see [monitor contract](runner/MONITOR.md).
-It has NOT been deployed or verified on AWS. Crashes/deletion failures also need S3 lifecycle cleanup.
-AUDIT-01 stays P0 open, with AUDIT-09 linked and unresolved, until these safeguards and AWS validation are complete.
-
-## Local evidence
-
-Historical execution/cleanup records are preserved in the workspace sibling
-[validation archive](../../obo-harness/evidence/2026-11-04-infra-layout/isolation-validation-history.md).
-Current repeatable CI commands remain in this repository's workflow and test sources.
-Pure Python 27, Node 8, disposable PostgreSQL 32, actual Linux sandbox 5 tests passed.
-No production DB/AWS, deployment or remote push. Local Docker is not Fargate validation.
-AUDIT-08: PostgreSQL harnesses now require DIVEON_GRADING_PG_TEST=approved and explicit PG_BIN;
-executable suffixes support Windows and Unix. Default discovery skips all 35 DB cases.
-Source packaging and CI details: [release procedure](../ops/RELEASE.md).
-
-Sources: [Fargate task boundary](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-iam-roles.html),
-[Fargate restrictions](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/fargate-tasks-services.html),
-[S3 POST conditions](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-HTTPPOSTConstructPolicy.html),
-[seccomp](https://docs.kernel.org/userspace-api/seccomp_filter.html).
+참고: [Fargate 작업 역할](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-iam-roles.html), [S3 POST 정책](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-HTTPPOSTConstructPolicy.html), [seccomp](https://docs.kernel.org/userspace-api/seccomp_filter.html)

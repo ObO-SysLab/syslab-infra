@@ -1,4 +1,0 @@
-ARG RUNNER_IMAGE=diveon-runner:audit-local
-FROM ${RUNNER_IMAGE}
-COPY runner/test_linux_sandbox.py /opt/runner/test_linux_sandbox.py
-CMD ["python3", "-B", "/opt/runner/test_linux_sandbox.py", "-v"]

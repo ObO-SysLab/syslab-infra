@@ -1,4 +1,4 @@
-# Build context: syslab-infra/grader. Build only after approving local Docker use.
+# Build context: syslab-infra/grader.
 FROM debian:bookworm-slim AS toolchain
 RUN apt-get update && apt-get install -y --no-install-recommends python3 gcc g++ libc6-dev libseccomp-dev \
     && rm -rf /var/lib/apt/lists/*
